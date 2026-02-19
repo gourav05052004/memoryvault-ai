@@ -1,0 +1,20 @@
+# --------------------
+# Backend ignores
+# --------------------
+backend/.env
+backend/__pycache__/
+backend/*.pyc
+backend/uploads/
+backend/chroma_store/
+backend/*.log
+
+# --------------------
+# Frontend ignores
+# --------------------
+frontend/node_modules/
+frontend/.next/
+frontend/.env.local
+frontend/*.log
+
+# OS
+.DS_Store
