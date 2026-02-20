@@ -1,5 +1,7 @@
 const API_BASE_URL = 'http://localhost:8001'
 
+const TOKEN_STORAGE_KEY = 'memoryvault_token'
+
 export interface UploadResponse {
   id: string
   extractedTextLength: number
@@ -43,6 +45,28 @@ export interface AskResponse {
   matches: Memory[]
 }
 
+interface AuthResponse {
+  access_token: string
+  token_type: string
+}
+
+function getAuthToken(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+  return localStorage.getItem(TOKEN_STORAGE_KEY)
+}
+
+function getAuthHeaders(): HeadersInit {
+  const token = getAuthToken()
+  if (!token) {
+    return {}
+  }
+  return {
+    Authorization: `Bearer ${token}`,
+  }
+}
+
 function transformBackendMemory(backend: BackendMemory): Memory {
   return {
     id: backend._id,
@@ -69,6 +93,7 @@ async function fetchWithErrorHandling<T>(
       ...options,
       headers: {
         'Content-Type': 'application/json',
+        ...getAuthHeaders(),
         ...options.headers,
       },
     })
@@ -96,6 +121,9 @@ export async function uploadPdf(file: File, title?: string): Promise<UploadRespo
   const response = await fetch(`${API_BASE_URL}/upload/pdf`, {
     method: 'POST',
     body: formData,
+    headers: {
+      ...getAuthHeaders(),
+    },
   })
 
   if (!response.ok) {
@@ -118,6 +146,9 @@ export async function uploadImage(file: File, title?: string): Promise<UploadRes
   const response = await fetch(`${API_BASE_URL}/upload/image`, {
     method: 'POST',
     body: formData,
+    headers: {
+      ...getAuthHeaders(),
+    },
   })
 
   if (!response.ok) {
@@ -177,6 +208,9 @@ export async function askMemory(
 export async function deleteMemory(id: string): Promise<void> {
   const response = await fetch(`${API_BASE_URL}/memory/${id}`, {
     method: 'DELETE',
+    headers: {
+      ...getAuthHeaders(),
+    },
   })
 
   if (!response.ok) {
@@ -185,4 +219,30 @@ export async function deleteMemory(id: string): Promise<void> {
       errorData.detail || `Failed to delete memory: ${response.statusText}`
     )
   }
+}
+
+export async function signupUser(
+  name: string,
+  email: string,
+  password: string
+): Promise<string> {
+  const response = await fetchWithErrorHandling<AuthResponse>(
+    `${API_BASE_URL}/auth/signup`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ name, email, password }),
+    }
+  )
+  return response.access_token
+}
+
+export async function loginUser(email: string, password: string): Promise<string> {
+  const response = await fetchWithErrorHandling<AuthResponse>(
+    `${API_BASE_URL}/auth/login`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    }
+  )
+  return response.access_token
 }

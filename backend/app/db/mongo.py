@@ -8,6 +8,7 @@ from ..config import MONGO_URI
 
 DATABASE_NAME: str = "memoryvault_db"
 COLLECTION_NAME: str = "memories"
+USERS_COLLECTION_NAME: str = "users"
 
 _client: Optional[MongoClient] = None
 
@@ -25,6 +26,10 @@ def _get_database() -> Database:
 
 def get_memories_collection() -> Collection:
     return _get_database()[COLLECTION_NAME]
+
+
+def get_users_collection() -> Collection:
+    return _get_database()[USERS_COLLECTION_NAME]
 
 
 def ping_mongo() -> bool:

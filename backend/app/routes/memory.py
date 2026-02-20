@@ -2,9 +2,10 @@ from datetime import datetime, timezone
 
 from bson import ObjectId
 from bson.errors import InvalidId
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
 from ..db.chroma import get_chroma_collection
 from ..services.embedding_service import index_memory_vector
@@ -34,6 +35,11 @@ class MemoryListItem(BaseModel):
     title: str
     summary: str
     tags: list[str]
+    fileName: str | None = None
+    fileUrl: str | None = None
+    fileType: str | None = None
+    fileSize: int | None = None
+    extractedText: str | None = None
     createdAt: datetime
 
 
@@ -46,6 +52,10 @@ class MemoryDetailResponse(BaseModel):
     extractedText: str
     summary: str
     tags: list[str]
+    fileName: str | None = None
+    fileUrl: str | None = None
+    fileType: str | None = None
+    fileSize: int | None = None
     createdAt: datetime
     updatedAt: datetime
 
@@ -63,11 +73,15 @@ def _parse_object_id(memory_id: str) -> ObjectId:
 def _serialize_memory(document: dict) -> dict:
     serialized = dict(document)
     serialized["_id"] = str(serialized["_id"])
+    # Supabase URLs are already public, no signingneeded
     return serialized
 
 
 @router.post("/memory/note", response_model=CreateMemoryResponse, status_code=status.HTTP_201_CREATED)
-def create_note(payload: CreateNoteRequest) -> CreateMemoryResponse:
+def create_note(
+    payload: CreateNoteRequest,
+    current_user: dict = Depends(get_current_user),
+) -> CreateMemoryResponse:
     collection = get_memories_collection()
     now = datetime.now(timezone.utc)
 
@@ -83,6 +97,7 @@ def create_note(payload: CreateNoteRequest) -> CreateMemoryResponse:
         generated_tags = []
 
     document = {
+        "userId": current_user["_id"],
         "type": "note",
         "title": payload.title,
         "extractedText": payload.content,
@@ -117,10 +132,13 @@ def create_note(payload: CreateNoteRequest) -> CreateMemoryResponse:
 
 
 @router.get("/memories", response_model=list[MemoryListItem])
-def list_memories() -> list[MemoryListItem]:
+def list_memories(current_user: dict = Depends(get_current_user)) -> list[MemoryListItem]:
     collection = get_memories_collection()
 
-    cursor = collection.find({}, {"extractedText": 0, "updatedAt": 0}).sort("createdAt", -1)
+    cursor = collection.find(
+        {"userId": current_user["_id"]},
+        {"updatedAt": 0, "userId": 0},
+    ).sort("createdAt", -1)
     memories = [_serialize_memory(document) for document in cursor]
 
     print(f"[Memories List] Returning {len(memories)} memories")
@@ -131,11 +149,14 @@ def list_memories() -> list[MemoryListItem]:
 
 
 @router.get("/memory/{id}", response_model=MemoryDetailResponse)
-def get_memory_by_id(id: str) -> MemoryDetailResponse:
+def get_memory_by_id(
+    id: str,
+    current_user: dict = Depends(get_current_user),
+) -> MemoryDetailResponse:
     object_id = _parse_object_id(id)
     collection = get_memories_collection()
 
-    document = collection.find_one({"_id": object_id})
+    document = collection.find_one({"_id": object_id, "userId": current_user["_id"]}, {"userId": 0})
     if document is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -152,12 +173,15 @@ def get_memory_by_id(id: str) -> MemoryDetailResponse:
 
 
 @router.delete("/memory/{id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_memory(id: str) -> None:
+def delete_memory(
+    id: str,
+    current_user: dict = Depends(get_current_user),
+) -> None:
     object_id = _parse_object_id(id)
     collection = get_memories_collection()
 
     # Delete from MongoDB
-    result = collection.delete_one({"_id": object_id})
+    result = collection.delete_one({"_id": object_id, "userId": current_user["_id"]})
     if result.deleted_count == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

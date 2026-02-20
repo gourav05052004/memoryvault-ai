@@ -1,6 +1,6 @@
 'use client'
 
-import { FileText, Image as ImageIcon, MessageSquare } from 'lucide-react'
+import { FileText, Image as ImageIcon, MessageSquare, Eye } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import type { Memory } from '@/lib/api'
@@ -51,10 +51,6 @@ export default function MemoryCard({ memory, onViewDetails }: MemoryCardProps) {
         </div>
       </div>
 
-      <p className="text-sm text-muted-foreground line-clamp-2">
-        {memory.summary}
-      </p>
-
       <div className="flex flex-wrap gap-1">
         {memory.tags.map((tag) => (
           <span
@@ -76,6 +72,9 @@ export default function MemoryCard({ memory, onViewDetails }: MemoryCardProps) {
           onClick={() => onViewDetails(memory)}
           className="text-primary hover:bg-primary/10"
         >
+          {memory.fileUrl && (memory.type === 'pdf' || memory.type === 'image') && (
+            <Eye className="h-3 w-3 mr-1" />
+          )}
           View Details
         </Button>
       </div>

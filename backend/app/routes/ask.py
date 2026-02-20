@@ -1,11 +1,12 @@
 import re
 
 from bson import ObjectId
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..db.chroma import get_chroma_collection
 from ..db.mongo import get_memories_collection
+from ..dependencies.auth import get_current_user
 from ..services.embedding_service import align_embedding_to_collection, embed_text
 from ..services.groq_service import generate_answer
 
@@ -14,11 +15,12 @@ router = APIRouter(tags=["ask"])
 
 MAX_FALLBACK_DOCS = 50
 VECTOR_CANDIDATE_MULTIPLIER = 6
+MIN_RELEVANCE_SCORE = 2.0
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "he", "in", "is",
     "it", "its", "of", "on", "or", "that", "the", "to", "was", "were", "will", "with", "this",
     "these", "those", "your", "you", "our", "their", "they", "we", "can", "should", "any", "what",
-    "who", "when", "where", "why", "how", "about", "tell", "me",
+    "who", "when", "where", "why", "how", "about", "tell", "me", "my", "i",
 }
 
 class AskRequest(BaseModel):
@@ -83,14 +85,16 @@ def _rank_memories(question: str, memories: list[dict], top_k: int) -> list[dict
     scored = [(_relevance_score(question_tokens, memory), index, memory) for index, memory in enumerate(memories)]
     scored.sort(key=lambda item: (-item[0], item[1]))
 
-    ranked = [item[2] for item in scored]
+    ranked = [item[2] for item in scored if item[0] >= MIN_RELEVANCE_SCORE]
     return ranked[:top_k]
 
 
-def _fallback_candidates(question: str, top_k: int) -> list[dict]:
+def _fallback_candidates(question: str, top_k: int, user_id: ObjectId) -> list[dict]:
     collection = get_memories_collection()
     docs = list(
-        collection.find({}).sort("createdAt", -1).limit(max(top_k * VECTOR_CANDIDATE_MULTIPLIER, MAX_FALLBACK_DOCS))
+        collection.find({"userId": user_id})
+        .sort("createdAt", -1)
+        .limit(max(top_k * VECTOR_CANDIDATE_MULTIPLIER, MAX_FALLBACK_DOCS))
     )
     return _rank_memories(question, docs, top_k)
 
@@ -107,7 +111,10 @@ def _serialize_match(memory: dict) -> AskMatch:
 
 
 @router.post("/ask", response_model=AskResponse)
-def ask_memory(payload: AskRequest) -> AskResponse:
+def ask_memory(
+    payload: AskRequest,
+    current_user: dict = Depends(get_current_user),
+) -> AskResponse:
     question = payload.question.strip()
     if not question:
         raise HTTPException(
@@ -138,13 +145,13 @@ def ask_memory(payload: AskRequest) -> AskResponse:
         object_ids = [ObjectId(memory_id) for memory_id in matched_ids if ObjectId.is_valid(memory_id)]
         if object_ids:
             collection = get_memories_collection()
-            documents = list(collection.find({"_id": {"$in": object_ids}}))
+            documents = list(collection.find({"_id": {"$in": object_ids}, "userId": current_user["_id"]}))
             document_map = {str(document["_id"]): document for document in documents}
             ordered_documents = [document_map[memory_id] for memory_id in matched_ids if memory_id in document_map]
             ranked_documents = _rank_memories(question, ordered_documents, payload.top_k)
 
     if not ranked_documents:
-        ranked_documents = _fallback_candidates(question, payload.top_k)
+        ranked_documents = _fallback_candidates(question, payload.top_k, current_user["_id"])
 
     if not ranked_documents:
         return AskResponse(answer="No relevant memories found.", matches=[])

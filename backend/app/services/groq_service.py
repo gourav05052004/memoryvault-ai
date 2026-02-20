@@ -9,8 +9,8 @@ from ..config import GROQ_API_KEY, GROQ_CHAT_MODEL
 
 CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 MAX_TEXT_CHARS = 12000
-MAX_TAGS = 8
-MIN_TAGS = 5
+MAX_TAGS = 15
+MIN_TAGS = 8
 REQUEST_TIMEOUT_SECONDS = 60
 STOP_WORDS = {
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "he", "in", "is",
@@ -92,7 +92,10 @@ def _build_fallback_summary_and_tags(text: str, title: str) -> dict:
             break
 
     if len(fallback_tags) < MIN_TAGS:
-        for default_tag in ["memory", "document", "notes", "reference", "important", "archive"]:
+        for default_tag in [
+            "memory", "document", "notes", "reference", "important", "archive",
+            "content", "information", "data", "resource", "saved", "knowledge"
+        ]:
             if default_tag not in fallback_tags:
                 fallback_tags.append(default_tag)
             if len(fallback_tags) >= MIN_TAGS:
@@ -156,15 +159,28 @@ def generate_summary_and_tags(text: str, title: str) -> dict:
 
     prompt = (
         "Return ONLY valid JSON with keys summary and tags. "
-        "summary must be 2 to 4 lines. "
-        "tags must contain 5 to 8 short clean tags, no hashtags, no emojis.\n\n"
+        "Summary rules: 2 to 4 short lines, plain text, remove noisy symbols, fix spacing, "
+        "and keep clean sentence case. "
+        "Tags rules: Generate 10 to 15 diverse tags for optimal searchability. "
+        "Include multiple types of tags: "
+        "(1) Main topics/subjects, "
+        "(2) Categories or domains (e.g., science, business, education, technical), "
+        "(3) Key concepts or themes, "
+        "(4) Named entities (people, places, organizations if present), "
+        "(5) Action verbs or processes mentioned, "
+        "(6) Temporal markers (dates, time periods if present), "
+        "(7) Related keywords for search. "
+        "Keep tags short (1-3 words), lowercase, no hashtags, no emojis.\n\n"
         f"Title: {title}\n"
         f"Text:\n{truncated_text}\n\n"
         "Output format:\n"
-        '{"summary": "...", "tags": ["tag1", "tag2"]}'
+        '{"summary": "...", "tags": ["tag1", "tag2", ...]}'
     )
 
-    system_prompt = "You organize memory records and strictly return valid JSON."
+    system_prompt = (
+        "You organize memory records, clean noisy text, and strictly return valid JSON. "
+        "Never include markdown or extra keys."
+    )
 
     try:
         raw_response = _post_chat_completion(prompt=prompt, system_prompt=system_prompt)
@@ -207,8 +223,9 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
     prompt = (
         "Answer the question using ONLY the memory context below. "
         "Do not add facts not present in context. "
-        "Prefer the memory that best matches the question title/keywords. "
-        "Return 3-6 short lines and mention the best-match memory title.\n\n"
+        "Return a concise answer in 1-2 short sentences. "
+        "Then add a new line starting with 'Sources:' followed by 1-3 memory titles separated by '; '. "
+        "Do not include summaries or extra text.\n\n"
         f"Question: {question}\n\n"
         f"Context:\n{''.join(context_blocks)}"
     )
@@ -226,12 +243,11 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
 
         if snippet:
             return (
-                f"I found relevant memories for your question \"{question}\". "
-                f"Top match: {best_title}. "
-                f"From the best match: {snippet}"
+                f"{snippet}\n"
+                f"Sources: {best_title}"
             )
 
         return (
-            f"I found relevant memories for your question \"{question}\". "
-            f"Top match: {best_title}."
+            f"No concise answer found in the stored memories.\n"
+            f"Sources: {best_title}"
         )

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, FileText, Image as ImageIcon, MessageSquare, Share2, Trash2 } from 'lucide-react'
+import { X, FileText, Image as ImageIcon, MessageSquare, Trash2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { deleteMemory } from '@/lib/api'
@@ -128,6 +128,31 @@ export default function MemoryDetailModal({
               </h1>
             </div>
 
+            {/* File Preview */}
+            {memory.fileUrl && (
+              <div className="space-y-3">
+                {memory.type === 'image' ? (
+                  <Button
+                    onClick={() => window.open(memory.fileUrl, '_blank')}
+                    className="w-full gap-2"
+                    variant="outline"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Open Image in New Tab
+                  </Button>
+                ) : memory.type === 'pdf' ? (
+                  <Button
+                    onClick={() => window.open(memory.fileUrl, '_blank')}
+                    className="w-full gap-2"
+                    variant="outline"
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    Open PDF in New Tab
+                  </Button>
+                ) : null}
+              </div>
+            )}
+
             {/* Metadata */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
@@ -144,14 +169,22 @@ export default function MemoryDetailModal({
                 <p className="text-muted-foreground font-medium">Type</p>
                 <p className="text-foreground mt-1 capitalize">{memory.type}</p>
               </div>
-            </div>
-
-            {/* Summary */}
-            <div>
-              <p className="text-muted-foreground font-medium text-sm">Summary</p>
-              <p className="text-foreground mt-2 leading-relaxed">
-                {memory.summary}
-              </p>
+              {memory.fileName && (
+                <div>
+                  <p className="text-muted-foreground font-medium">File Name</p>
+                  <p className="text-foreground mt-1 truncate" title={memory.fileName}>
+                    {memory.fileName}
+                  </p>
+                </div>
+              )}
+              {memory.fileSize && (
+                <div>
+                  <p className="text-muted-foreground font-medium">File Size</p>
+                  <p className="text-foreground mt-1">
+                    {(memory.fileSize / 1024).toFixed(2)} KB
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Tags */}
@@ -174,21 +207,14 @@ export default function MemoryDetailModal({
             {/* Actions */}
             <div className="flex gap-3 pt-4 border-t border-border">
               <Button
-                variant="outline"
-                className="flex-1 gap-2"
-              >
-                <Share2 className="h-4 w-4" />
-                Share
-              </Button>
-              <Button
                 onClick={handleDelete}
                 disabled={isDeleting}
-                variant="outline"
-                className="flex-1 gap-2 text-destructive hover:text-destructive"
+                variant="destructive"
+                className="flex-1 gap-2"
               >
                 {isDeleting ? (
                   <>
-                    <div className="h-4 w-4 border-2 border-destructive border-t-transparent rounded-full animate-spin" />
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                     Deleting...
                   </>
                 ) : (

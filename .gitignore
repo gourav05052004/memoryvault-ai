@@ -1,20 +1,86 @@
 # --------------------
-# Backend ignores
+# Backend (Python) ignores
 # --------------------
 backend/.env
+backend/.env.local
 backend/__pycache__/
+backend/**/__pycache__/
 backend/*.pyc
+backend/**/*.pyc
+backend/*.pyo
+backend/**/*.pyo
+backend/*.egg-info/
+backend/.pytest_cache/
+backend/.mypy_cache/
+backend/.ruff_cache/
+backend/.coverage
+backend/htmlcov/
+backend/dist/
+backend/build/
 backend/uploads/
 backend/chroma_store/
 backend/*.log
+backend/.venv/
+backend/venv/
+backend/env/
+backend/pip-log.txt
+backend/pip-delete-this-directory.txt
 
 # --------------------
-# Frontend ignores
+# Frontend (Node.js/Next.js) ignores
 # --------------------
 frontend/node_modules/
 frontend/.next/
+frontend/out/
+frontend/dist/
+frontend/.env
 frontend/.env.local
+frontend/.env.production.local
+frontend/.env.test.local
 frontend/*.log
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/.turbo/
+frontend/.vercel/
+frontend/.eslintcache
+frontend/.stylelintcache
+frontend/.swc/
 
-# OS
+# --------------------
+# IDE / Editor
+# --------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
 .DS_Store
+._.DS_Store
+Thumbs.db
+*.iml
+.project
+.classpath
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# --------------------
+# Environment & Secrets
+# --------------------
+*.pem
+*.key
+*.crt
+.env.*.local
+
+# --------------------
+# OS
+# --------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

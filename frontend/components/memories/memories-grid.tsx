@@ -16,16 +16,26 @@ export default function MemoriesGrid({ memories, onViewDetails }: MemoriesGridPr
 
   const filteredMemories = useMemo(() => {
     return memories.filter((memory) => {
-      const matchesSearch =
-        memory.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        memory.summary.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        memory.tags.some((tag) =>
-          tag.toLowerCase().includes(searchQuery.toLowerCase())
-        )
+      const query = searchQuery.toLowerCase().trim()
+      
+      if (!query && filterType === 'all') {
+        return true
+      }
 
       const matchesFilter = filterType === 'all' || memory.type === filterType
+      
+      if (!query) {
+        return matchesFilter
+      }
 
-      return matchesSearch && matchesFilter
+      // Enhanced search: title, individual tags, and extracted text
+      const matchesTitle = memory.title.toLowerCase().includes(query)
+      const matchesTags = memory.tags.some((tag) =>
+        tag.toLowerCase().includes(query)
+      )
+      const matchesContent = memory.extractedText?.toLowerCase().includes(query)
+
+      return (matchesTitle || matchesTags || matchesContent) && matchesFilter
     })
   }, [memories, searchQuery, filterType])
 

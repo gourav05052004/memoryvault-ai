@@ -1,16 +1,18 @@
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
-from uuid import uuid4
 
 import fitz
 import pytesseract
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 from pytesseract import TesseractNotFoundError
 
 from ..config import TESSERACT_CMD
+from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
+from ..services.supabase_service import upload_file_to_supabase
 from ..services.embedding_service import index_memory_vector
 from ..services.groq_service import generate_summary_and_tags
 
@@ -19,10 +21,6 @@ router = APIRouter(tags=["uploads"])
 
 if TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-
-BASE_DIR = Path(__file__).resolve().parents[2]
-UPLOADS_DIR = BASE_DIR / "uploads"
-UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
 
 ALLOWED_PDF_MIME_TYPES = {"application/pdf"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
@@ -52,20 +50,9 @@ def _ensure_filename(filename: str | None) -> str:
     return filename
 
 
-def _build_unique_filename(filename: str) -> str:
-    extension = _get_extension(filename)
-    return f"{uuid4().hex}{extension}"
-
-
-def _save_upload_file(file: UploadFile, destination: Path) -> int:
-    file_bytes = file.file.read()
-    destination.write_bytes(file_bytes)
-    return len(file_bytes)
-
-
-def _extract_text_from_pdf(file_path: Path) -> str:
+def _extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
-        with fitz.open(file_path) as document:
+        with fitz.open(stream=file_bytes, filetype="pdf") as document:
             text = "\n".join(page.get_text() for page in document).strip()
             print(f"[PDF Extract] Extracted {len(text)} characters from PDF")
             return text
@@ -77,9 +64,9 @@ def _extract_text_from_pdf(file_path: Path) -> str:
         ) from exc
 
 
-def _extract_text_from_image(file_path: Path) -> str:
+def _extract_text_from_image(file_bytes: bytes) -> str:
     try:
-        with Image.open(file_path) as image:
+        with Image.open(BytesIO(file_bytes)) as image:
             return pytesseract.image_to_string(image).strip()
     except TesseractNotFoundError as exc:
         raise HTTPException(
@@ -108,6 +95,7 @@ def _insert_memory_document(document: dict) -> str:
 def upload_pdf(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
+    current_user: dict = Depends(get_current_user),
 ) -> UploadMemoryResponse:
     original_filename = _ensure_filename(file.filename)
     extension = _get_extension(original_filename)
@@ -118,11 +106,12 @@ def upload_pdf(
             detail="Invalid file type. Only PDF files are allowed",
         )
 
-    unique_filename = _build_unique_filename(original_filename)
-    destination = UPLOADS_DIR / unique_filename
-    file_size = _save_upload_file(file, destination)
+    # Upload PDF to Supabase Storage
+    supabase_result = upload_file_to_supabase(file, bucket="memoryvault")
+    file_bytes = file.file.read()
+    file_size = len(file_bytes)
 
-    extracted_text = _extract_text_from_pdf(destination)
+    extracted_text = _extract_text_from_pdf(file_bytes)
     print(f"[PDF] Extracted text length: {len(extracted_text)}")
 
     generated_summary = ""
@@ -147,12 +136,14 @@ def upload_pdf(
     now = datetime.now(timezone.utc)
 
     document = {
+        "userId": current_user["_id"],
         "type": "pdf",
         "title": resolved_title,
-        "fileName": unique_filename,
-        "fileUrl": f"/uploads/{unique_filename}",
+        "fileName": original_filename,
+        "fileUrl": supabase_result["public_url"],
+        "filePath": supabase_result["file_path"],
         "fileType": file.content_type,
-        "fileSize": file_size,
+        "fileSize": supabase_result["file_size"],
         "extractedText": extracted_text,
         "summary": generated_summary,
         "tags": generated_tags,
@@ -188,6 +179,7 @@ def upload_pdf(
 def upload_image(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
+    current_user: dict = Depends(get_current_user),
 ) -> UploadMemoryResponse:
     original_filename = _ensure_filename(file.filename)
     extension = _get_extension(original_filename)
@@ -198,11 +190,12 @@ def upload_image(
             detail="Invalid file type. Only PNG/JPG/JPEG files are allowed",
         )
 
-    unique_filename = _build_unique_filename(original_filename)
-    destination = UPLOADS_DIR / unique_filename
-    file_size = _save_upload_file(file, destination)
+    # Upload image to Supabase Storage
+    supabase_result = upload_file_to_supabase(file, bucket="memoryvault")
+    file_bytes = file.file.read()
+    file_size = len(file_bytes)
 
-    extracted_text = _extract_text_from_image(destination)
+    extracted_text = _extract_text_from_image(file_bytes)
     print(f"[IMAGE] Extracted text length: {len(extracted_text)}")
 
     generated_summary = ""
@@ -227,12 +220,14 @@ def upload_image(
     now = datetime.now(timezone.utc)
 
     document = {
+        "userId": current_user["_id"],
         "type": "image",
         "title": resolved_title,
-        "fileName": unique_filename,
-        "fileUrl": f"/uploads/{unique_filename}",
+        "fileName": original_filename,
+        "fileUrl": supabase_result["public_url"],
+        "filePath": supabase_result["file_path"],
         "fileType": file.content_type,
-        "fileSize": file_size,
+        "fileSize": supabase_result["file_size"],
         "extractedText": extracted_text,
         "summary": generated_summary,
         "tags": generated_tags,
