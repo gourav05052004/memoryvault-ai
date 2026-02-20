@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { Send } from 'lucide-react'
+import { Send, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
@@ -17,7 +17,7 @@ interface ChatMessage {
   matchedMemories?: Memory[]
 }
 
-const INITIAL_GREETING = "Hi! I'm your AI memory assistant. Ask me anything about your memories, and I'll help you find relevant information and insights."
+const INITIAL_GREETING = "Hi! I'm your memory assistant powered by AI. Ask me anything about your memories, and I'll help you find relevant File related to it."
 
 export default function ChatInterface() {
   const [messages, setMessages] = useState<ChatMessage[]>([
@@ -53,13 +53,13 @@ export default function ChatInterface() {
     setIsLoading(true)
 
     try {
-      const response = await askMemory(inputValue, 3)
+      const response = await askMemory(inputValue, 1)
 
       const aiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         message: response.answer,
         isUser: false,
-        matchedMemories: response.matches,
+        matchedMemories: response.matches.length > 0 ? [response.matches[0]] : [],
       }
 
       setMessages((prev) => [...prev, aiMessage])
@@ -69,7 +69,7 @@ export default function ChatInterface() {
       
       const errorAiMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        message: `Sorry, I encountered an error while processing your question: ${errorMessage}. Please try again.`,
+        message: `Sorry, I encountered an error while processing your question. Please try again.`,
         isUser: false,
       }
       setMessages((prev) => [...prev, errorAiMessage])
@@ -79,9 +79,9 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-linear-to-b from-card to-card/50">
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto space-y-4 p-4">
+      <div className="flex-1 overflow-y-auto space-y-4 p-6">
         {messages.map((msg) => (
           <div key={msg.id} className="space-y-3">
             <MessageBubble message={msg.message} isUser={msg.isUser} />
@@ -97,12 +97,9 @@ export default function ChatInterface() {
 
         {isLoading && (
           <div className="flex justify-start">
-            <div className="flex gap-2 items-center px-4 py-3 bg-muted rounded-lg">
-              <div className="flex gap-1">
-                <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" />
-                <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
-                <div className="h-2 w-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
-              </div>
+            <div className="flex gap-3 items-center px-5 py-4 bg-linear-to-r from-primary/10 to-purple-500/10 border border-primary/20 rounded-xl">
+              <Loader2 className="h-4 w-4 text-primary animate-spin" />
+              <span className="text-sm text-muted-foreground">AI is thinking...</span>
             </div>
           </div>
         )}
@@ -111,8 +108,8 @@ export default function ChatInterface() {
       </div>
 
       {/* Input Area */}
-      <div className="border-t border-border p-4 bg-card">
-        <div className="flex gap-2">
+      <div className="border-t border-border/50 p-5 bg-linear-to-t from-card to-transparent">
+        <div className="flex gap-3">
           <Input
             value={inputValue}
             onChange={(e) => setInputValue(e.target.value)}
@@ -122,16 +119,20 @@ export default function ChatInterface() {
                 handleSendMessage()
               }
             }}
-            placeholder="Ask me about your memories..."
+            placeholder="Ask anything about your memories..."
             disabled={isLoading}
-            className="flex-1"
+            className="flex-1 bg-background border-border focus:border-primary focus:ring-1 focus:ring-primary/30 rounded-lg"
           />
           <Button
             onClick={handleSendMessage}
             disabled={!inputValue.trim() || isLoading}
-            className="bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+            className="bg-linear-to-r from-primary to-primary/80 hover:from-primary hover:to-primary text-primary-foreground gap-2 rounded-lg transition-all"
           >
-            <Send className="h-4 w-4" />
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
             <span className="hidden sm:inline">Send</span>
           </Button>
         </div>

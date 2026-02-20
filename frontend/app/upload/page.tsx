@@ -1,3 +1,5 @@
+"use client"
+
 import UploadPDFCard from '@/components/upload-cards/upload-pdf-card'
 import UploadImageCard from '@/components/upload-cards/upload-image-card'
 import CreateTextNoteCard from '@/components/upload-cards/create-text-note-card'

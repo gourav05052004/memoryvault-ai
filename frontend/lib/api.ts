@@ -29,7 +29,7 @@ export interface Memory {
   id: string
   type: 'pdf' | 'image' | 'note'
   title: string
-  summary: string
+  summary?: string
   tags: string[]
   fileName?: string
   fileUrl?: string
@@ -48,6 +48,16 @@ export interface AskResponse {
 interface AuthResponse {
   access_token: string
   token_type: string
+}
+
+interface MessageResponse {
+  message: string
+}
+
+export interface UserProfile {
+  id: string
+  name: string
+  email: string
 }
 
 function getAuthToken(): string | null {
@@ -89,6 +99,10 @@ async function fetchWithErrorHandling<T>(
   options: RequestInit = {}
 ): Promise<T> {
   try {
+    const token = getAuthToken()
+    console.log('Making request to:', url)
+    console.log('Auth token present:', !!token)
+    
     const response = await fetch(url, {
       ...options,
       headers: {
@@ -98,15 +112,20 @@ async function fetchWithErrorHandling<T>(
       },
     })
 
+    console.log('Response status:', response.status)
+    const data = await response.json()
+    console.log('Response data:', data)
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}))
+      console.error('Response error:', data)
       throw new Error(
-        errorData.detail || `HTTP ${response.status}: ${response.statusText}`
+        data.detail || `HTTP ${response.status}: ${response.statusText}`
       )
     }
 
-    return await response.json() as T
+    return data as T
   } catch (error) {
+    console.error('Fetch error:', error)
     throw error instanceof Error ? error : new Error('Unknown error occurred')
   }
 }
@@ -245,4 +264,26 @@ export async function loginUser(email: string, password: string): Promise<string
     }
   )
   return response.access_token
+}
+
+export async function changePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<string> {
+  const response = await fetchWithErrorHandling<MessageResponse>(
+    `${API_BASE_URL}/auth/change-password`,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    }
+  )
+
+  return response.message
+}
+
+export async function getCurrentUserProfile(): Promise<UserProfile> {
+  return fetchWithErrorHandling<UserProfile>(`${API_BASE_URL}/auth/me`)
 }

@@ -2,14 +2,22 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { Brain } from 'lucide-react'
+import { Brain, CircleUserRound, KeyRound, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/context/auth-context'
 
 export default function Navbar() {
   const pathname = usePathname()
   const router = useRouter()
-  const { isAuthenticated, logout, isLoading } = useAuth()
+  const { isAuthenticated, logout, isLoading, userName, userEmail } = useAuth()
 
   const isAuthPage = pathname === '/login' || pathname === '/signup'
 
@@ -59,9 +67,39 @@ export default function Navbar() {
                     {item.label}
                   </Link>
                 ))}
-                <Button variant="secondary" size="sm" onClick={handleLogout}>
-                  Logout
-                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-10 w-10 rounded-full border border-border bg-primary/10 text-primary hover:bg-primary/15"
+                      aria-label="Open profile menu"
+                    >
+                      <CircleUserRound className="h-5 w-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-64">
+                    <DropdownMenuLabel className="space-y-1">
+                      <p className="text-sm font-medium text-foreground">{userName || 'User'}</p>
+                      <p className="text-xs font-normal text-muted-foreground">{userEmail || 'No email available'}</p>
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem 
+                      onClick={() => router.push('/change-password')}
+                      variant="purple"
+                    >
+                      <KeyRound className="h-4 w-4" />
+                      Change Password
+                    </DropdownMenuItem>
+                    <DropdownMenuItem 
+                      onClick={handleLogout}
+                      variant="purple"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Logout
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             ) : (
               <>

@@ -34,8 +34,9 @@ class AskMatch(BaseModel):
     id: str = Field(alias="_id")
     title: str
     type: str
-    summary: str
     fileUrl: str | None = None
+    fileName: str | None = None
+    fileSize: int | None = None
     tags: list[str]
 
 
@@ -104,8 +105,9 @@ def _serialize_match(memory: dict) -> AskMatch:
         _id=str(memory["_id"]),
         title=str(memory.get("title", "")),
         type=str(memory.get("type", "")),
-        summary=str(memory.get("summary", "")),
         fileUrl=memory.get("fileUrl"),
+        fileName=memory.get("fileName"),
+        fileSize=memory.get("fileSize"),
         tags=[tag for tag in memory.get("tags", []) if isinstance(tag, str)],
     )
 
@@ -156,7 +158,11 @@ def ask_memory(
     if not ranked_documents:
         return AskResponse(answer="No relevant memories found.", matches=[])
 
-    answer = generate_answer(question, ranked_documents)
+    top_document = ranked_documents[0]
+    document_title = top_document.get("title", "Document")
+    document_type = top_document.get("type", "document").upper()
+    
+    answer = f"Found in {document_type}: {document_title}"
     matches = [_serialize_match(document) for document in ranked_documents]
 
     return AskResponse(answer=answer, matches=matches)
