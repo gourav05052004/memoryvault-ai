@@ -59,7 +59,7 @@ export default function ChatInterface() {
         id: (Date.now() + 1).toString(),
         message: response.answer,
         isUser: false,
-        matchedMemories: response.matches.length > 0 ? [response.matches[0]] : [],
+        matchedMemories: response.matched_memories.length > 0 ? [response.matched_memories[0]] : [],
       }
 
       setMessages((prev) => [...prev, aiMessage])

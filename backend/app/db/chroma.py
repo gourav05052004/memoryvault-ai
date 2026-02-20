@@ -21,3 +21,25 @@ def get_chroma_collection():
         _collection = _client.get_or_create_collection(name=COLLECTION_NAME)
 
     return _collection
+
+
+def reset_chroma_collection():
+    """Delete and recreate the collection. Use this to fix dimension mismatches."""
+    global _client, _collection
+    
+    if _client is None:
+        _client = chromadb.PersistentClient(path=str(CHROMA_STORE_DIR))
+    
+    try:
+        _client.delete_collection(name=COLLECTION_NAME)
+        print(f"[DEBUG] ✓ Deleted old ChromaDB collection: {COLLECTION_NAME}")
+    except Exception as e:
+        print(f"[DEBUG] Could not delete collection: {e}")
+    
+    _collection = None
+    
+    # Recreate with new dimensions
+    _collection = _client.get_or_create_collection(name=COLLECTION_NAME)
+    print(f"[DEBUG] ✓ Created fresh ChromaDB collection: {COLLECTION_NAME}")
+    
+    return _collection

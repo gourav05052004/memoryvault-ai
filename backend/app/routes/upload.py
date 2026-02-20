@@ -163,8 +163,11 @@ def upload_pdf(
             extracted_text=extracted_text,
             created_at=now,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Vector indexing failed: {exc}",
+        ) from exc
 
     return UploadMemoryResponse(
         id=inserted_id,
@@ -247,8 +250,11 @@ def upload_image(
             extracted_text=extracted_text,
             created_at=now,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Vector indexing failed: {exc}",
+        ) from exc
 
     return UploadMemoryResponse(
         id=inserted_id,

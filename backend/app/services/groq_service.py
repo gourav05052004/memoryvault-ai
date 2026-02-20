@@ -1,13 +1,12 @@
 import json
 import re
 from collections import Counter
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+
+from groq import Groq
 
 from ..config import GROQ_API_KEY, GROQ_CHAT_MODEL
 
 
-CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 MAX_TEXT_CHARS = 12000
 MAX_TAGS = 15
 MIN_TAGS = 8
@@ -17,6 +16,12 @@ STOP_WORDS = {
     "it", "its", "of", "on", "or", "that", "the", "to", "was", "were", "will", "with", "this",
     "these", "those", "your", "you", "our", "their", "they", "we", "can", "should", "any",
 }
+
+_GROQ_SETTINGS = {
+    "api_key": GROQ_API_KEY,
+    "model": GROQ_CHAT_MODEL,
+}
+_GROQ_CLIENT = Groq(api_key=_GROQ_SETTINGS["api_key"]) if _GROQ_SETTINGS["api_key"] else None
 
 
 def _truncate_text(text: str) -> str:
@@ -108,48 +113,47 @@ def _build_fallback_summary_and_tags(text: str, title: str) -> dict:
 
 
 def _post_chat_completion(prompt: str, system_prompt: str, temperature: float = 0.2) -> str:
-    if not GROQ_API_KEY:
+    if not _GROQ_SETTINGS["api_key"]:
         raise RuntimeError("GROQ_API_KEY is not configured")
-
-    payload = {
-        "model": GROQ_CHAT_MODEL,
-        "temperature": temperature,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    }
-
-    req = Request(
-        CHAT_COMPLETIONS_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-        },
-        method="POST",
-    )
+    if _GROQ_CLIENT is None:
+        raise RuntimeError("Groq client is not initialized")
 
     try:
-        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            raw = response.read().decode("utf-8")
-    except HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Groq API HTTP {exc.code}: {details}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Could not reach Groq API: {exc.reason}") from exc
+        response = _GROQ_CLIENT.chat.completions.create(
+            model=_GROQ_SETTINGS["model"],
+            temperature=temperature,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": prompt},
+            ],
+        )
+    except Exception as exc:
+        raise RuntimeError(f"Groq SDK call failed: {exc}") from exc
 
-    parsed = json.loads(raw)
-    choices = parsed.get("choices") or []
+    choices = getattr(response, "choices", None) or []
     if not choices:
         raise RuntimeError("Groq API returned no choices")
 
-    message = choices[0].get("message") if isinstance(choices[0], dict) else None
-    content = message.get("content") if isinstance(message, dict) else ""
+    message = getattr(choices[0], "message", None)
+    content = getattr(message, "content", "") if message else ""
     if not isinstance(content, str) or not content.strip():
         raise RuntimeError("Groq API returned empty content")
 
     return content.strip()
+
+
+def generate_direct_answer(question: str) -> str:
+    if not question.strip():
+        raise RuntimeError("Question cannot be empty")
+
+    system_prompt = (
+        "You are a helpful assistant. Answer the user's question directly and concisely."
+    )
+    return _post_chat_completion(
+        prompt=question.strip(),
+        system_prompt=system_prompt,
+        temperature=0.2,
+    )
 
 
 def generate_summary_and_tags(text: str, title: str) -> dict:
@@ -204,50 +208,98 @@ def generate_summary_and_tags(text: str, title: str) -> dict:
         return _build_fallback_summary_and_tags(text=truncated_text, title=title)
 
 
-def generate_answer(question: str, memories: list[dict], max_snippet_chars: int = 400) -> str:
+def generate_answer(question: str, memories: list[dict], max_snippet_chars: int = 8000) -> str:
+    """
+    Generate grounded answer based on retrieved memories using Groq LLM.
+    
+    Optimized for extracting structured data from documents.
+    """
     if not memories:
         return "No relevant memories found."
 
     context_blocks: list[str] = []
     for index, memory in enumerate(memories, start=1):
         snippet = str(memory.get("extractedText", ""))[:max_snippet_chars]
+        summary = str(memory.get("summary", "")).strip()
+        memory_type = str(memory.get("type", "")).upper()
+        memory_title = str(memory.get("title", "Memory"))
+
+        # DEBUG: Log what we're working with
+        print(f"\n[DEBUG] Memory {index}:")
+        print(f"  Title: {memory_title}")
+        print(f"  Type: {memory_type}")
+        print(f"  Extracted Text Length: {len(snippet)} chars")
+        print(f"  Summary: {summary[:100]}...")
+        print(f"  First 500 chars of content: {snippet[:500]}...")
+
         block = (
             f"Memory {index}:\n"
-            f"Title: {memory.get('title', '')}\n"
-            f"Type: {memory.get('type', '')}\n"
-            f"Summary: {memory.get('summary', '')}\n"
-            f"Snippet: {snippet}\n"
+            f"Title: {memory_title}\n"
+            f"Type: {memory_type}\n"
+            f"Content:\n{snippet}\n"
         )
+
         context_blocks.append(block)
 
+    # Smarter prompt for structured data extraction
     prompt = (
-        "Answer the question using ONLY the memory context below. "
-        "Do not add facts not present in context. "
-        "Return a concise answer in 1-2 short sentences. "
-        "Then add a new line starting with 'Sources:' followed by 1-3 memory titles separated by '; '. "
-        "Do not include summaries or extra text.\n\n"
-        f"Question: {question}\n\n"
-        f"Context:\n{''.join(context_blocks)}"
+        "You are extracting SPECIFIC information from documents. "
+        "Your task is to find the answer to the user's question - NOT to answer about other fields.\n\n"
+        "CRITICAL RULES:\n"
+        "1. Focus on answering ONLY the exact question asked. Ignore information about other fields.\n"
+        "2. Look for EXACT FIELD NAMES in the content that match the question:\n"
+        "   - If asking about 'Reg No', find 'Reg No' field\n"
+        "   - If asking about 'Purpose of Visit', find 'Purpose of Visit' field\n"
+        "   - If asking about 'Room', find 'Room' field\n"
+        "3. Extract only the VALUE (not the field name or surrounding text)\n"
+        "4. Return ONLY the extracted value in 1-2 sentences maximum.\n"
+        "5. Add 'Source: [Memory Title]' on a new line.\n"
+        "6. If not found after careful search, say 'Not found in memories.'\n"
+        "7. Double-check that your answer is relevant to the question asked.\n\n"
+        f"User Question: {question}\n\n"
+        f"Document Content:\n{''.join(context_blocks)}\n"
+        "---\n"
+        f"User asked: {question}\n"
+        "Find the answer to this specific question only. Do not return information about other fields."
     )
 
-    system_prompt = "You are a precise assistant for memory retrieval and grounding."
+    print(f"\n[DEBUG] Sending to Groq:")
+    print(f"  Question: {question}")
+    print(f"  Prompt length: {len(prompt)} chars")
+    print(f"  Context blocks: {len(context_blocks)}")
+    print(f"  First 1000 chars of prompt:\n{prompt[:1000]}")
+
+    system_prompt = (
+        "You are an expert at extracting specific information from documents. "
+        "You carefully read the full content and identify field names and their values. "
+        "You extract data accurately and concisely. "
+        "You never fabricate information. "
+        "You always cite your source."
+    )
 
     try:
-        return _post_chat_completion(prompt=prompt, system_prompt=system_prompt, temperature=0.1)
-    except Exception:
-        best_title = str(memories[0].get("title", "")).strip() or "relevant memory"
+        answer = _post_chat_completion(prompt=prompt, system_prompt=system_prompt, temperature=0.1)
+        print(f"\n[DEBUG] Groq Response: {answer}")
+        print(f"[DEBUG] Question: {question}\n")
+        
+        # Post-process to enforce 1-2 sentences max
+        sentences = answer.split('\n')
+        source_line = ""
+        answer_parts = []
+        
+        for line in sentences:
+            if line.strip().lower().startswith("source:"):
+                source_line = line.strip()
+            else:
+                answer_parts.append(line.strip())
+        
+        answer_text = " ".join(answer_parts).strip()
+        sentence_list = re.split(r'(?<=[.!?])\s+', answer_text)
+        limited_answer = " ".join(sentence_list[:2])
+        
+        if source_line:
+            return f"{limited_answer}\n\nSource: {source_line.replace('Source: ', '')}"
+        return limited_answer
+    except Exception as e:
+        raise RuntimeError(f"LLM answer generation failed: {e}") from e
 
-        snippet = str(memories[0].get("summary", "")).strip()
-        if not snippet:
-            snippet = str(memories[0].get("extractedText", "")).strip()[:220]
-
-        if snippet:
-            return (
-                f"{snippet}\n"
-                f"Sources: {best_title}"
-            )
-
-        return (
-            f"No concise answer found in the stored memories.\n"
-            f"Sources: {best_title}"
-        )

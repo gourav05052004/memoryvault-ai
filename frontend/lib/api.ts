@@ -42,7 +42,7 @@ export interface Memory {
 
 export interface AskResponse {
   answer: string
-  matches: Memory[]
+  matched_memories: Memory[]
 }
 
 interface AuthResponse {
@@ -213,14 +213,14 @@ export async function askMemory(
 ): Promise<AskResponse> {
   const response = await fetchWithErrorHandling<{
     answer: string
-    matches: BackendMemory[]
+    matched_memories: BackendMemory[]
   }>(`${API_BASE_URL}/ask`, {
     method: 'POST',
     body: JSON.stringify({ question, top_k: topK }),
   })
   return {
     answer: response.answer,
-    matches: response.matches.map(transformBackendMemory),
+    matched_memories: response.matched_memories.map(transformBackendMemory),
   }
 }
 
