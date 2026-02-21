@@ -79,16 +79,13 @@ def _extract_text_from_image(file_bytes: bytes) -> str:
         with Image.open(BytesIO(file_bytes)) as image:
             return pytesseract.image_to_string(image).strip()
     except TesseractNotFoundError as exc:
+        logger.error(f"Tesseract not found at: {pytesseract.pytesseract.tesseract_cmd}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Tesseract OCR is not installed or not found in PATH",
-        ) from exc
-    except (UnidentifiedImageError, OSError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process image for OCR",
+            detail="Tesseract OCR is not installed. Contact support.",
         ) from exc
     except Exception as exc:
+        logger.error(f"OCR error: {type(exc).__name__}: {str(exc)}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to extract text from image",

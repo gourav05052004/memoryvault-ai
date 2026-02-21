@@ -33,6 +33,6 @@ services:
         value: 60
       - key: LOG_LEVEL
         value: INFO
-      - key: TESSERACT_CMD
-        value: tesseract  # System-installed tesseract from Dockerfile
+      - key: TESSERACT_PATH
+        value: /usr/bin/tesseract  # Path to tesseract in Docker container
     healthCheckPath: /health

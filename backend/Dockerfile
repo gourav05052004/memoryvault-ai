@@ -10,6 +10,9 @@ RUN apt-get update && apt-get install -y \
 # Set working directory
 WORKDIR /app
 
+# Verify tesseract installation
+RUN which tesseract && tesseract --version
+
 # Copy requirements first
 COPY requirements-production.txt .
 
@@ -19,8 +22,11 @@ RUN pip install --no-cache-dir -r requirements-production.txt
 # Copy application code
 COPY . .
 
+# Set environment variable for Tesseract
+ENV TESSERACT_PATH=/usr/bin/tesseract
+
 # Expose Render port
 EXPOSE 10000
 
 # Use dynamic port from Render
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port $PORT"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]
