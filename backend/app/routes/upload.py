@@ -22,9 +22,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["uploads"])
 
-# Import pytesseract - path will be configured in main.py startup event
-import pytesseract
-
 ALLOWED_PDF_MIME_TYPES = {"application/pdf"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
 
