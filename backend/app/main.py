@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,9 +16,13 @@ app = FastAPI(
 )
 
 
+frontend_urls = os.getenv("FRONTEND_URLS", "http://localhost:3000")
+allowed_origins = [url.strip() for url in frontend_urls.split(",") if url.strip()]
+
+
 app.add_middleware(
 	CORSMiddleware,
-	allow_origins=["http://localhost:3000"],
+	allow_origins=allowed_origins,
 	allow_credentials=True,
 	allow_methods=["*"],
 	allow_headers=["*"],
