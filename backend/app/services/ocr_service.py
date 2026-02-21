@@ -1,6 +1,7 @@
 """OCR service using EasyOCR for text extraction from images."""
 
 import logging
+import sys
 from io import BytesIO
 from typing import Optional
 
@@ -27,14 +28,16 @@ def _get_ocr_reader():
 			_reader = easyocr.Reader(
 				["en"],
 				gpu=False,  # Set to True if GPU is available in your environment
-				model_storage_directory=None,  # Uses default cache location
-				user_network_directory=None,
-				cache_dir=None,
 				verbose=False,
 			)
 			logger.info("✓ EasyOCR reader initialized successfully")
 		except ImportError:
-			logger.error("EasyOCR not installed. Install with: pip install easyocr")
+			install_cmd = f'"{sys.executable}" -m pip install easyocr==1.7.2'
+			logger.error(
+				"EasyOCR not installed in this interpreter: %s. Install with: %s",
+				sys.executable,
+				install_cmd,
+			)
 			raise RuntimeError("EasyOCR is required but not installed")
 		except Exception as e:
 			logger.error(f"Failed to initialize EasyOCR reader: {e}")
