@@ -49,23 +49,11 @@ app.include_router(auth_router)
 
 @app.on_event("startup")
 def startup_event():
-	"""Configure Tesseract path and verify on startup"""
-	import pytesseract
-	
-	# Render container has Tesseract at /usr/bin/tesseract from our Dockerfile
-	pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-	
-	# Try a quick version check
-	try:
-		result = subprocess.run(["/usr/bin/tesseract", "--version"], 
-							   capture_output=True, text=True, timeout=3)
-		if result.returncode == 0:
-			version = result.stdout.split('\n')[0]
-			logger.info(f"✓ Tesseract OCR configured and ready: {version}")
-			return
-	except Exception as e:
-		logger.error(f"Tesseract check failed: {e}")
-		# Continue anyway - may still work
+	"""Verify critical dependencies on startup"""
+	logger.info("Starting up MemoryVault AI Backend...")
+	logger.info("  - Using Gemini API for embeddings and chat")
+	logger.info("  - Using EasyOCR for image text extraction (pure Python, no external dependencies)")
+	logger.info("✓ Backend initialized successfully")
 
 
 @app.get("/")

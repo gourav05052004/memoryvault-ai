@@ -6,17 +6,16 @@ from io import BytesIO
 from pathlib import Path
 
 import fitz
-import pytesseract
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
-from pytesseract import TesseractNotFoundError
 
 from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
 from ..services.supabase_service import upload_file_to_supabase
 from ..services.embedding_service import index_memory_vector
 from ..services.gemini_service import generate_summary_and_tags
+from ..services.ocr_service import extract_text_from_image as extract_text_from_image_ocr
 
 logger = logging.getLogger(__name__)
 
@@ -69,23 +68,32 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
 
 
 def _extract_text_from_image(file_bytes: bytes) -> str:
-    try:
-        with Image.open(BytesIO(file_bytes)) as image:
-            return pytesseract.image_to_string(image).strip()
-    except TesseractNotFoundError as exc:
-        tesseract_path = getattr(pytesseract.pytesseract, 'tesseract_cmd', 'unknown')
-        logger.error(f"Tesseract OCR not available at: {tesseract_path}")
-        logger.error(f"Error: {str(exc)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Image OCR is not available on this server. Please contact support.",
-        ) from exc
-    except Exception as exc:
-        logger.error(f"Image OCR processing failed: {type(exc).__name__}: {str(exc)}")
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to process image",
-        ) from exc
+	"""Extract text from image using EasyOCR (pure Python, no system dependencies)"""
+	try:
+		extracted_text = extract_text_from_image_ocr(file_bytes)
+		if not extracted_text:
+			logger.warning("No text detected in image")
+		else:
+			logger.debug(f"Extracted {len(extracted_text)} characters from image via EasyOCR")
+		return extracted_text
+	except ValueError as exc:
+		logger.error(f"Invalid image file: {exc}")
+		raise HTTPException(
+			status_code=status.HTTP_400_BAD_REQUEST,
+			detail="Invalid image file format",
+		) from exc
+	except RuntimeError as exc:
+		logger.error(f"EasyOCR error: {exc}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Image processing failed. Please try another image.",
+		) from exc
+	except Exception as exc:
+		logger.error(f"Unexpected OCR error: {type(exc).__name__}: {str(exc)}")
+		raise HTTPException(
+			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+			detail="Failed to process image",
+		) from exc
 
 
 def _insert_memory_document(document: dict) -> str:
