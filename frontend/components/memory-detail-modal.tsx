@@ -153,6 +153,18 @@ export default function MemoryDetailModal({
               </div>
             )}
 
+            {/* Note Content */}
+            {memory.type === 'note' && memory.extractedText && (
+              <div>
+                <p className="text-muted-foreground font-medium text-sm mb-2">Note Content</p>
+                <div className="rounded-lg border border-border bg-muted/30 p-4">
+                  <p className="text-foreground whitespace-pre-wrap wrap-break-word leading-relaxed">
+                    {memory.extractedText}
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Metadata */}
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
