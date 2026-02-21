@@ -1,47 +1,34 @@
-# Use Python 3.10 slim image - based on Debian 12
+# Use Python 3.10 slim image
 FROM python:3.10-slim
 
-# Force fresh build (cache bust) - update this when needing fresh build
-ARG BUILD_DATE=2026-02-22
-ENV BUILD_DATE=$BUILD_DATE
+# CRITICAL: Install Tesseract BEFORE anything else to avoid caching issues
+# This must happen in the base layer, not a cached one
+RUN apt-get update -qq && \
+    apt-get install -y -qq --no-install-recommends \
+        tesseract-ocr \
+        libtesseract0 \
+        tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* && \
+    echo "Tesseract installation status:" && \
+    ls -la /usr/bin/tesseract && \
+    /usr/bin/tesseract --version
 
-# Update package lists and install Tesseract + dependencies
-# Using explicit install with verbose output for debugging
-RUN echo "=== Installing Tesseract OCR ===" && \
-    apt-get update --allow-unauthenticated && \
-    apt-get install -y --no-install-recommends \
-    tesseract-ocr \
-    libtesseract0 \
-    tesseract-ocr-eng \
-    && echo "=== Tesseract installation complete ===" && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+# Fail build immediately if Tesseract is missing
+RUN test -x /usr/bin/tesseract || { echo "CRITICAL ERROR: Tesseract not found!"; exit 1; }
 
-# Fail the build if Tesseract is not found
-RUN echo "=== CRITICAL: Verifying Tesseract ===" && \
-    test -f /usr/bin/tesseract || (echo "ERROR: /usr/bin/tesseract not found!" && exit 1) && \
-    /usr/bin/tesseract --version && \
-    echo "✓ Tesseract verified successfully"
-
-# Set working directory
 WORKDIR /app
 
-# Copy requirements
+# Copy and install Python dependencies
 COPY requirements-production.txt .
-
-# Install Python dependencies
 RUN pip install --no-cache-dir -r requirements-production.txt
 
-# Copy application code
+# Copy app code
 COPY . .
 
-# Set environment variables for Tesseract
+# Set Tesseract environment
 ENV TESSERACT_PATH=/usr/bin/tesseract \
-    PATH="/usr/bin:$PATH" \
-    LD_LIBRARY_PATH="/usr/lib:$LD_LIBRARY_PATH"
+    PATH="/usr/bin:$PATH"
 
-# Expose Render port
 EXPOSE 10000
 
-# Run the app
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8001}"]

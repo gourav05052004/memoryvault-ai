@@ -49,27 +49,23 @@ app.include_router(auth_router)
 
 @app.on_event("startup")
 def startup_event():
-	"""Configure and verify Tesseract on startup"""
+	"""Configure Tesseract path and verify on startup"""
 	import pytesseract
 	
-	# Set Tesseract path - will try to find it in PATH
-	# Render container has it at /usr/bin/tesseract from Dockerfile
+	# Render container has Tesseract at /usr/bin/tesseract from our Dockerfile
 	pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 	
-	# Verify it works
+	# Try a quick version check
 	try:
-		result = subprocess.run(["/usr/bin/tesseract", "--version"], capture_output=True, text=True, timeout=5)
+		result = subprocess.run(["/usr/bin/tesseract", "--version"], 
+							   capture_output=True, text=True, timeout=3)
 		if result.returncode == 0:
-			version_info = result.stdout.split('\n')[0] if result.stdout else "installed"
-			logger.info(f"✓ Tesseract OCR ready: {version_info}")
-		else:
-			logger.error(f"✗ Tesseract test failed with code {result.returncode}")
-			logger.error(f"  stderr: {result.stderr}")
-	except FileNotFoundError:
-		logger.error("✗ Tesseract binary not found at /usr/bin/tesseract")
-		logger.error("  Image uploads will fail. Check Dockerfile installation.")
+			version = result.stdout.split('\n')[0]
+			logger.info(f"✓ Tesseract OCR configured and ready: {version}")
+			return
 	except Exception as e:
-		logger.error(f"✗ Tesseract verification failed: {e}")
+		logger.error(f"Tesseract check failed: {e}")
+		# Continue anyway - may still work
 
 
 @app.get("/")
