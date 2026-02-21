@@ -1,13 +1,10 @@
 import logging
-import os
 import traceback
 from datetime import datetime, timezone
-from io import BytesIO
 from pathlib import Path
 
 import fitz
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
-from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 
 from ..dependencies.auth import get_current_user
@@ -64,33 +61,24 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
         ) from exc
 
 
-def _extract_text_from_image(file_bytes: bytes) -> str:
-	"""Extract text from image using EasyOCR (pure Python, no system dependencies)"""
-	try:
-		extracted_text = extract_text_from_image_ocr(file_bytes)
-		if not extracted_text:
-			logger.warning("No text detected in image")
-		else:
-			logger.debug(f"Extracted {len(extracted_text)} characters from image via EasyOCR")
-		return extracted_text
-	except ValueError as exc:
-		logger.error(f"Invalid image file: {exc}")
-		raise HTTPException(
-			status_code=status.HTTP_400_BAD_REQUEST,
-			detail="Invalid image file format",
-		) from exc
-	except RuntimeError as exc:
-		logger.error(f"EasyOCR error: {exc}")
-		raise HTTPException(
-			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-			detail="Image processing failed. Please try another image.",
-		) from exc
-	except Exception as exc:
-		logger.error(f"Unexpected OCR error: {type(exc).__name__}: {str(exc)}")
-		raise HTTPException(
-			status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-			detail="Failed to process image",
-		) from exc
+async def _extract_text_from_image(file_bytes: bytes) -> str:
+    """Extract text from image via OCR.space, fail-soft on OCR errors."""
+    try:
+        extracted_text = await extract_text_from_image_ocr(file_bytes)
+        if not extracted_text:
+            logger.warning("No text detected in image")
+        else:
+            logger.debug(f"Extracted {len(extracted_text)} characters from image via OCR.space")
+        return extracted_text
+    except ValueError as exc:
+        logger.warning(f"Invalid image bytes for OCR: {exc}")
+        return ""
+    except RuntimeError as exc:
+        logger.error(f"OCR.space error: {exc}")
+        return ""
+    except Exception as exc:
+        logger.error(f"Unexpected OCR error: {type(exc).__name__}: {str(exc)}")
+        return ""
 
 
 def _insert_memory_document(document: dict) -> str:
@@ -184,7 +172,7 @@ def upload_pdf(
 
 
 @router.post("/upload/image", response_model=UploadMemoryResponse, status_code=status.HTTP_201_CREATED)
-def upload_image(
+async def upload_image(
     file: UploadFile = File(...),
     title: str | None = Form(default=None),
     current_user: dict = Depends(get_current_user),
@@ -203,7 +191,7 @@ def upload_image(
     file_bytes = file.file.read()
     file_size = len(file_bytes)
 
-    extracted_text = _extract_text_from_image(file_bytes)
+    extracted_text = await _extract_text_from_image(file_bytes)
     logger.info(f"Image text extracted: {len(extracted_text)} chars")
 
     generated_summary = ""

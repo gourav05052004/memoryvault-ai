@@ -1,8 +1,6 @@
 from datetime import datetime, timezone
 import logging
 import os
-import subprocess
-import shutil
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -52,7 +50,7 @@ def startup_event():
 	"""Verify critical dependencies on startup"""
 	logger.info("Starting up MemoryVault AI Backend...")
 	logger.info("  - Using Gemini API for embeddings and chat")
-	logger.info("  - Using EasyOCR for image text extraction (pure Python, no external dependencies)")
+	logger.info("  - Using OCR.space API for image text extraction")
 	logger.info("✓ Backend initialized successfully")
 
 

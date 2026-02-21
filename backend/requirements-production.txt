@@ -28,7 +28,6 @@ cryptography==46.0.5
 # File Processing
 Pillow==12.1.1
 PyMuPDF==1.27.1
-easyocr==1.7.2
 
 # Data handling
 pydantic==2.12.5

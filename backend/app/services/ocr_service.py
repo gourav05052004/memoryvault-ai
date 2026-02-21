@@ -1,100 +1,85 @@
-"""OCR service using EasyOCR for text extraction from images."""
+"""OCR service using OCR.space API for text extraction from images."""
 
 import logging
-import sys
-from io import BytesIO
-from typing import Optional
 
-from PIL import Image
+import httpx
+
+from ..config import OCR_SPACE_API_KEY
+
 
 logger = logging.getLogger(__name__)
 
-# Global reader instance (lazy initialization)
-_reader: Optional[object] = None
+OCR_SPACE_URL = "https://api.ocr.space/parse/image"
+OCR_TIMEOUT_SECONDS = 12.0
 
 
-def _get_ocr_reader():
-	"""Get or initialize the EasyOCR reader (singleton pattern).
-	
-	Initializes on first call. Downloads language models on first use.
-	Models are cached locally to avoid repeated downloads.
-	"""
-	global _reader
-	
-	if _reader is None:
-		try:
-			import easyocr
-			logger.info("Initializing EasyOCR reader for English...")
-			_reader = easyocr.Reader(
-				["en"],
-				gpu=False,  # Set to True if GPU is available in your environment
-				verbose=False,
-			)
-			logger.info("✓ EasyOCR reader initialized successfully")
-		except ImportError:
-			install_cmd = f'"{sys.executable}" -m pip install easyocr==1.7.2'
-			logger.error(
-				"EasyOCR not installed in this interpreter: %s. Install with: %s",
-				sys.executable,
-				install_cmd,
-			)
-			raise RuntimeError("EasyOCR is required but not installed")
-		except Exception as e:
-			logger.error(f"Failed to initialize EasyOCR reader: {e}")
-			raise RuntimeError(f"EasyOCR initialization failed: {e}")
-	
-	return _reader
+async def extract_text_from_image(image_bytes: bytes) -> str:
+    """Extract text from image bytes using OCR.space API.
 
+    Args:
+        image_bytes: Raw image bytes (PNG, JPEG, etc.)
 
-def extract_text_from_image(image_bytes: bytes) -> str:
-	"""Extract text from image bytes using EasyOCR.
-	
-	Args:
-		image_bytes: Raw image file bytes (PNG, JPEG, etc.)
-	
-	Returns:
-		Extracted text as a single string
-	
-	Raises:
-		RuntimeError: If OCR fails or EasyOCR is not available
-		ValueError: If image is invalid
-	"""
-	try:
-		# Open image
-		try:
-			with Image.open(BytesIO(image_bytes)) as img:
-				# Convert RGBA to RGB if needed
-				if img.mode in ("RGBA", "LA", "P"):
-					rgb_img = Image.new("RGB", img.size, (255, 255, 255))
-					rgb_img.paste(img, mask=img.split()[-1] if img.mode == "RGBA" else None)
-					img = rgb_img
-				
-				# Convert PIL image to numpy array for EasyOCR
-				import numpy as np
-				image_array = np.array(img)
-		except Exception as e:
-			logger.error(f"Failed to open image: {e}")
-			raise ValueError(f"Invalid image file: {e}")
-		
-		# Get OCR reader
-		reader = _get_ocr_reader()
-		
-		# Perform OCR
-		logger.debug("Running EasyOCR on image...")
-		results = reader.readtext(image_array, detail=0)  # detail=0 returns only text
-		
-		# Combine all detected text with line breaks
-		extracted_text = "\n".join(results).strip()
-		
-		if not extracted_text:
-			logger.warning("No text detected in image")
-			return ""
-		
-		logger.debug(f"Extracted {len(extracted_text)} characters from image")
-		return extracted_text
-	
-	except ValueError:
-		raise
-	except Exception as e:
-		logger.error(f"OCR processing failed: {type(e).__name__}: {str(e)}")
-		raise RuntimeError(f"Failed to extract text from image: {e}")
+    Returns:
+        Extracted text as a single string. Returns an empty string when no text is found.
+
+    Raises:
+        RuntimeError: If OCR request/response handling fails
+        ValueError: If input image bytes are empty
+    """
+    if not image_bytes:
+        raise ValueError("Image bytes are empty")
+
+    if not OCR_SPACE_API_KEY:
+        logger.error("OCR_SPACE_API_KEY is not configured")
+        raise RuntimeError("OCR_SPACE_API_KEY is missing")
+
+    headers = {"apikey": OCR_SPACE_API_KEY}
+    data = {
+        "language": "eng",
+        "isOverlayRequired": "false",
+        "OCREngine": "2",
+    }
+    files = {
+        "file": ("image.jpg", image_bytes, "application/octet-stream"),
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=OCR_TIMEOUT_SECONDS) as client:
+            response = await client.post(
+                OCR_SPACE_URL,
+                headers=headers,
+                data=data,
+                files=files,
+            )
+            response.raise_for_status()
+            payload = response.json()
+    except httpx.TimeoutException as exc:
+        logger.error("OCR.space request timed out after %.1fs", OCR_TIMEOUT_SECONDS)
+        raise RuntimeError("OCR request timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        logger.error("OCR.space HTTP error: %s - %s", exc.response.status_code, exc.response.text)
+        raise RuntimeError("OCR request failed") from exc
+    except Exception as exc:
+        logger.error("OCR.space request error: %s: %s", type(exc).__name__, str(exc))
+        raise RuntimeError("Failed to call OCR service") from exc
+
+    exit_code = payload.get("OCRExitCode")
+    if exit_code != 1:
+        error_message = payload.get("ErrorMessage") or payload.get("ErrorDetails") or "Unknown OCR error"
+        logger.error("OCR.space unsuccessful OCRExitCode=%s, error=%s", exit_code, error_message)
+        raise RuntimeError(f"OCR failed with exit code {exit_code}")
+
+    parsed_results = payload.get("ParsedResults") or []
+    parsed_texts = [
+        str(result.get("ParsedText", "")).strip()
+        for result in parsed_results
+        if isinstance(result, dict)
+    ]
+    extracted_text = "\n".join(text for text in parsed_texts if text).strip()
+
+    if not extracted_text:
+        logger.warning("OCR.space returned success but no text was extracted")
+        return ""
+
+    logger.debug("OCR.space extracted %s characters", len(extracted_text))
+    return extracted_text

@@ -12,11 +12,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements-production.txt .
 RUN pip install --no-cache-dir --quiet -r requirements-production.txt
 
-# Pre-download EasyOCR English model in separate layer
-# This caches the model download independently
-RUN python -c "import easyocr; easyocr.Reader(['en'], gpu=False, verbose=False)" && \
-    echo "✓ EasyOCR English model cached (faster first request)"
-
 # Copy application code (layer caching: cached dependencies stay if only app code changes)
 COPY app/ app/
 
