@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 import logging
 import os
+import subprocess
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,8 @@ logging.basicConfig(
 	level=getattr(logging, LOG_LEVEL, logging.INFO),
 	format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
 )
+
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(
@@ -41,6 +44,18 @@ app.include_router(memory_router)
 app.include_router(upload_router)
 app.include_router(ask_router)
 app.include_router(auth_router)
+
+
+@app.on_event("startup")
+def startup_event():
+	"""Verify critical dependencies on startup"""
+	try:
+		result = subprocess.run(["tesseract", "--version"], capture_output=True, text=True)
+		logger.info(f"✓ Tesseract OCR available: {result.stdout.split(chr(10))[0]}")
+	except FileNotFoundError:
+		logger.warning("⚠ Tesseract OCR not found - image uploads will fail")
+	except Exception as e:
+		logger.warning(f"⚠ Tesseract check failed: {e}")
 
 
 @app.get("/")

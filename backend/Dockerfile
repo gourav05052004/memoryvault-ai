@@ -1,17 +1,25 @@
 # Use Python 3.10 slim image
 FROM python:3.10-slim
 
-# Install system dependencies (Tesseract OCR)
+# Install all system dependencies for Tesseract OCR
 RUN apt-get update && apt-get install -y \
     tesseract-ocr \
+    libtesseract0 \
+    libleptonica-dev \
     tesseract-ocr-eng \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
 
-# Verify tesseract installation
-RUN which tesseract && tesseract --version
+# Verify tesseract installation and show path
+RUN which tesseract \
+    && tesseract --version \
+    && echo "Tesseract binary location:" \
+    && which tesseract
 
 # Copy requirements first
 COPY requirements-production.txt .
