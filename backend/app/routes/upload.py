@@ -1,4 +1,5 @@
 import logging
+import os
 import traceback
 from datetime import datetime, timezone
 from io import BytesIO
@@ -23,8 +24,13 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["uploads"])
 
+tesseract_path = os.getenv("TESSERACT_PATH", "")
 if TESSERACT_CMD:
     pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
+elif tesseract_path:
+    pytesseract.pytesseract.tesseract_cmd = tesseract_path
+else:
+    pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 
 ALLOWED_PDF_MIME_TYPES = {"application/pdf"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
