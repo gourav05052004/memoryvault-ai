@@ -1,3 +1,5 @@
+import logging
+import traceback
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -14,7 +16,9 @@ from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
 from ..services.supabase_service import upload_file_to_supabase
 from ..services.embedding_service import index_memory_vector
-from ..services.groq_service import generate_summary_and_tags
+from ..services.gemini_service import generate_summary_and_tags
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["uploads"])
@@ -54,10 +58,10 @@ def _extract_text_from_pdf(file_bytes: bytes) -> str:
     try:
         with fitz.open(stream=file_bytes, filetype="pdf") as document:
             text = "\n".join(page.get_text() for page in document).strip()
-            print(f"[PDF Extract] Extracted {len(text)} characters from PDF")
+            logger.debug(f"Extracted {len(text)} characters from PDF")
             return text
     except Exception as exc:
-        print(f"[PDF Extract] Error: {exc}")
+        logger.error(f"PDF text extraction failed: {exc}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to extract text from PDF",
@@ -112,24 +116,21 @@ def upload_pdf(
     file_size = len(file_bytes)
 
     extracted_text = _extract_text_from_pdf(file_bytes)
-    print(f"[PDF] Extracted text length: {len(extracted_text)}")
+    logger.info(f"PDF text extracted: {len(extracted_text)} chars")
 
     generated_summary = ""
     generated_tags: list[str] = []
     resolved_title = title if title else Path(original_filename).stem
 
     try:
-        print(f"[PDF] Generating summary for: {resolved_title}")
+        logger.debug(f"Generating summary for PDF: {resolved_title}")
         generated = generate_summary_and_tags(extracted_text, resolved_title)
         generated_summary = str(generated.get("summary", "")).strip()
         generated_tags = [tag for tag in generated.get("tags", []) if isinstance(tag, str)]
-        print(f"[PDF] Generated summary: {generated_summary[:100]}...")
-        print(f"[PDF] Generated tags: {generated_tags}")
+        logger.info(f"PDF summary generated: {len(generated_summary)} chars, {len(generated_tags)} tags")
     except Exception as exc:
-        print(f"[PDF] Error generating summary: {type(exc).__name__}")
-        print(f"[PDF] Error details: {str(exc)}")
-        import traceback
-        print(f"[PDF] Full traceback:\n{traceback.format_exc()}")
+        logger.error(f"PDF summary generation failed: {type(exc).__name__}: {str(exc)}")
+        logger.debug(f"Full traceback:\n{traceback.format_exc()}")
         generated_summary = ""
         generated_tags = []
 
@@ -199,24 +200,21 @@ def upload_image(
     file_size = len(file_bytes)
 
     extracted_text = _extract_text_from_image(file_bytes)
-    print(f"[IMAGE] Extracted text length: {len(extracted_text)}")
+    logger.info(f"Image text extracted: {len(extracted_text)} chars")
 
     generated_summary = ""
     generated_tags: list[str] = []
     resolved_title = title if title else Path(original_filename).stem
 
     try:
-        print(f"[IMAGE] Generating summary for: {resolved_title}")
+        logger.debug(f"Generating summary for image: {resolved_title}")
         generated = generate_summary_and_tags(extracted_text, resolved_title)
         generated_summary = str(generated.get("summary", "")).strip()
         generated_tags = [tag for tag in generated.get("tags", []) if isinstance(tag, str)]
-        print(f"[IMAGE] Generated summary: {generated_summary[:100]}...")
-        print(f"[IMAGE] Generated tags: {generated_tags}")
+        logger.info(f"Image summary generated: {len(generated_summary)} chars, {len(generated_tags)} tags")
     except Exception as exc:
-        print(f"[IMAGE] Error generating summary: {type(exc).__name__}")
-        print(f"[IMAGE] Error details: {str(exc)}")
-        import traceback
-        print(f"[IMAGE] Full traceback:\n{traceback.format_exc()}")
+        logger.error(f"Image summary generation failed: {type(exc).__name__}: {str(exc)}")
+        logger.debug(f"Full traceback:\n{traceback.format_exc()}")
         generated_summary = ""
         generated_tags = []
 

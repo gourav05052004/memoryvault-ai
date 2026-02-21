@@ -1,36 +1,19 @@
+import logging
 from datetime import datetime
-import hashlib
-import json
+from typing import Literal
 
-from ..config import EMBEDDING_MODEL
+from google import genai
+from google.genai import types
+
+from ..config import EMBEDDING_MODEL, GEMINI_API_KEY
 from ..db.chroma import get_chroma_collection
 
-try:
-    from sentence_transformers import SentenceTransformer
-    HUGGINGFACE_AVAILABLE = True
-except ImportError:
-    HUGGINGFACE_AVAILABLE = False
-
-# Initialize model globally to avoid reloading on each call
-_embedding_model = None
-
-def _get_embedding_model():
-    """Lazy load the embedding model."""
-    global _embedding_model
-    if _embedding_model is None:
-        if not HUGGINGFACE_AVAILABLE:
-            raise RuntimeError(
-                "sentence-transformers not installed. "
-                "Install with: pip install sentence-transformers"
-            )
-        print(f"[DEBUG] Loading embedding model: {EMBEDDING_MODEL}")
-        _embedding_model = SentenceTransformer(EMBEDDING_MODEL)
-    return _embedding_model
+logger = logging.getLogger(__name__)
 
 
 MAX_EMBED_TEXT_CHARS = 12000
-MAX_CONTENT_SNIPPET_CHARS = 2000
-TARGET_EMBEDDING_DIM = 384  # all-MiniLM-L6-v2 returns 384-dimensional embeddings
+TARGET_EMBEDDING_DIM = 768
+_GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
 
 def _truncate_text(text: str) -> str:
@@ -121,51 +104,62 @@ def align_embedding_to_collection(embedding: list[float], collection=None) -> li
     return _resize_embedding(embedding, target_dim=target_dim)
 
 
-def _deterministic_embedding(text: str, target_dim: int = TARGET_EMBEDDING_DIM) -> list[float]:
-    values: list[float] = []
-    counter = 0
-
-    while len(values) < target_dim:
-        digest = hashlib.sha256(f"{text}::{counter}".encode("utf-8")).digest()
-        counter += 1
-
-        for index in range(0, len(digest), 4):
-            chunk = digest[index : index + 4]
-            if len(chunk) < 4:
-                continue
-            integer = int.from_bytes(chunk, byteorder="big", signed=False)
-            normalized = (integer / 4294967295.0) * 2.0 - 1.0
-            values.append(float(normalized))
-            if len(values) >= target_dim:
-                break
-
-    return values[:target_dim]
+def _resolve_embedding_dim(collection=None) -> int:
+    target_dim = _get_collection_embedding_dim(collection) if collection is not None else None
+    if target_dim is None:
+        target_dim = TARGET_EMBEDDING_DIM
+    return target_dim
 
 
-def _embed_with_huggingface(text: str) -> list[float]:
-    """Generate embeddings using HuggingFace sentence-transformers."""
-    model = _get_embedding_model()
-    embedding = model.encode(text, convert_to_tensor=False)
-    return [float(value) for value in embedding]
+def _extract_values_from_embedding_result(result) -> list[float]:
+    embeddings = getattr(result, "embeddings", None)
+    if embeddings and len(embeddings) > 0:
+        first = embeddings[0]
+        values = getattr(first, "values", None)
+        if values:
+            return [float(value) for value in values]
+
+    single_embedding = getattr(result, "embedding", None)
+    single_values = getattr(single_embedding, "values", None) if single_embedding else None
+    if single_values:
+        return [float(value) for value in single_values]
+
+    raise RuntimeError("Gemini returned an invalid embedding response")
 
 
-def embed_text(text: str) -> list[float]:
+def embed_text(
+    text: str,
+    task_type: Literal["RETRIEVAL_DOCUMENT", "RETRIEVAL_QUERY"] = "RETRIEVAL_DOCUMENT",
+    collection=None,
+) -> list[float]:
     truncated_text = _truncate_text(text)
     if not truncated_text:
         raise RuntimeError("Cannot embed empty text")
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    if _GEMINI_CLIENT is None:
+        raise RuntimeError("Gemini client is not initialized")
 
     try:
-        # Use HuggingFace sentence-transformers for embeddings (local, free, fast)
-        embedding = _embed_with_huggingface(truncated_text)
-        aligned = align_embedding_to_collection(embedding)
-        print(f"[DEBUG] ✓ Generated {len(aligned)}-dim embedding successfully")
+        output_dimensionality = _resolve_embedding_dim(collection=collection)
+        response = _GEMINI_CLIENT.models.embed_content(
+            model=EMBEDDING_MODEL,
+            contents=truncated_text,
+            config=types.EmbedContentConfig(
+                task_type=task_type,
+                output_dimensionality=output_dimensionality,
+            ),
+        )
+        embedding = _extract_values_from_embedding_result(response)
+        aligned = align_embedding_to_collection(embedding, collection=collection)
+        logger.debug(
+            f"Generated {len(aligned)}-dim Gemini embedding using {EMBEDDING_MODEL} "
+            f"(task_type={task_type}, output_dimensionality={output_dimensionality})"
+        )
         return aligned
     except Exception as e:
-        print(f"[DEBUG] HuggingFace embedding failed: {e}, using deterministic fallback")
-        fallback_embedding = _deterministic_embedding(truncated_text)
-        aligned = align_embedding_to_collection(fallback_embedding)
-        print(f"[DEBUG] ✓ Generated {len(aligned)}-dim fallback embedding")
-        return aligned
+        logger.error(f"Embedding failed: {e}")
+        raise RuntimeError(f"Failed to generate embedding: {e}")
 
 
 def index_memory_vector(
@@ -186,7 +180,11 @@ def index_memory_vector(
     )
 
     collection = get_chroma_collection()
-    embedding = embed_text(combined_text)
+    embedding = embed_text(
+        combined_text,
+        task_type="RETRIEVAL_DOCUMENT",
+        collection=collection,
+    )
     embedding = align_embedding_to_collection(embedding, collection=collection)
 
     collection.upsert(

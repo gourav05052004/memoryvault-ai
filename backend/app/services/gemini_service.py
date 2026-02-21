@@ -1,10 +1,14 @@
 import json
+import logging
 import re
 from collections import Counter
 
-from groq import Groq
+from google import genai
+from google.genai import types
 
-from ..config import GROQ_API_KEY, GROQ_CHAT_MODEL
+from ..config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
+
+logger = logging.getLogger(__name__)
 
 
 MAX_TEXT_CHARS = 12000
@@ -17,11 +21,13 @@ STOP_WORDS = {
     "these", "those", "your", "you", "our", "their", "they", "we", "can", "should", "any",
 }
 
-_GROQ_SETTINGS = {
-    "api_key": GROQ_API_KEY,
-    "model": GROQ_CHAT_MODEL,
+_GEMINI_SETTINGS = {
+    "api_key": GEMINI_API_KEY,
+    "model": GEMINI_CHAT_MODEL,
 }
-_GROQ_CLIENT = Groq(api_key=_GROQ_SETTINGS["api_key"]) if _GROQ_SETTINGS["api_key"] else None
+_GEMINI_CLIENT = genai.Client(api_key=_GEMINI_SETTINGS["api_key"]) if _GEMINI_SETTINGS["api_key"] else None
+_FALLBACK_CHAT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+logger = logging.getLogger(__name__)
 
 
 def _truncate_text(text: str) -> str:
@@ -112,34 +118,61 @@ def _build_fallback_summary_and_tags(text: str, title: str) -> dict:
     }
 
 
+def _chat_model_candidates() -> list[str]:
+    ordered = [GEMINI_CHAT_MODEL, *_FALLBACK_CHAT_MODELS]
+    unique: list[str] = []
+    for model in ordered:
+        if model and model not in unique:
+            unique.append(model)
+    return unique
+
+
 def _post_chat_completion(prompt: str, system_prompt: str, temperature: float = 0.2) -> str:
-    if not _GROQ_SETTINGS["api_key"]:
-        raise RuntimeError("GROQ_API_KEY is not configured")
-    if _GROQ_CLIENT is None:
-        raise RuntimeError("Groq client is not initialized")
+    if not _GEMINI_SETTINGS["api_key"]:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    if _GEMINI_CLIENT is None:
+        raise RuntimeError("Gemini client is not initialized")
 
-    try:
-        response = _GROQ_CLIENT.chat.completions.create(
-            model=_GROQ_SETTINGS["model"],
-            temperature=temperature,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": prompt},
-            ],
-        )
-    except Exception as exc:
-        raise RuntimeError(f"Groq SDK call failed: {exc}") from exc
+    combined_prompt = (
+        f"System instructions:\n{system_prompt}\n\n"
+        f"User prompt:\n{prompt}"
+    )
 
-    choices = getattr(response, "choices", None) or []
-    if not choices:
-        raise RuntimeError("Groq API returned no choices")
+    last_error: Exception | None = None
 
-    message = getattr(choices[0], "message", None)
-    content = getattr(message, "content", "") if message else ""
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("Groq API returned empty content")
+    for model_name in _chat_model_candidates():
+        try:
+            logger.debug("[GEMINI] Trying model=%s with thinking_config", model_name)
+            response = _GEMINI_CLIENT.models.generate_content(
+                model=model_name,
+                contents=combined_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=temperature,
+                    thinking_config=types.ThinkingConfig(thinking_level="low"),
+                ),
+            )
+        except Exception as thinking_exc:
+            logger.warning("[GEMINI] thinking_config call failed for model=%s: %s", model_name, thinking_exc)
+            try:
+                logger.debug("[GEMINI] Retrying model=%s without thinking_config", model_name)
+                response = _GEMINI_CLIENT.models.generate_content(
+                    model=model_name,
+                    contents=combined_prompt,
+                    config=types.GenerateContentConfig(temperature=temperature),
+                )
+            except Exception as plain_exc:
+                logger.warning("[GEMINI] plain call failed for model=%s: %s", model_name, plain_exc)
+                last_error = plain_exc
+                continue
 
-    return content.strip()
+        content = getattr(response, "text", "")
+        if isinstance(content, str) and content.strip():
+            logger.info("[GEMINI] generate_content success with model=%s", model_name)
+            return content.strip()
+
+        last_error = RuntimeError(f"Gemini API returned empty content for model {model_name}")
+
+    raise RuntimeError(f"Gemini SDK call failed across model fallbacks: {last_error}")
 
 
 def generate_direct_answer(question: str) -> str:
@@ -205,12 +238,13 @@ def generate_summary_and_tags(text: str, title: str) -> dict:
             "tags": tags[:MAX_TAGS],
         }
     except Exception:
+        logger.exception("[GEMINI] Summary/tag generation failed, using fallback summary/tags")
         return _build_fallback_summary_and_tags(text=truncated_text, title=title)
 
 
 def generate_answer(question: str, memories: list[dict], max_snippet_chars: int = 8000) -> str:
     """
-    Generate grounded answer based on retrieved memories using Groq LLM.
+    Generate grounded answer based on retrieved memories using Gemini.
     
     Optimized for extracting structured data from documents.
     """
@@ -224,13 +258,7 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
         memory_type = str(memory.get("type", "")).upper()
         memory_title = str(memory.get("title", "Memory"))
 
-        # DEBUG: Log what we're working with
-        print(f"\n[DEBUG] Memory {index}:")
-        print(f"  Title: {memory_title}")
-        print(f"  Type: {memory_type}")
-        print(f"  Extracted Text Length: {len(snippet)} chars")
-        print(f"  Summary: {summary[:100]}...")
-        print(f"  First 500 chars of content: {snippet[:500]}...")
+        logger.debug(f"Memory {index}: title={memory_title}, type={memory_type}, text_length={len(snippet)}")
 
         block = (
             f"Memory {index}:\n"
@@ -241,7 +269,6 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
 
         context_blocks.append(block)
 
-    # Smarter prompt for structured data extraction
     prompt = (
         "You are extracting SPECIFIC information from documents. "
         "Your task is to find the answer to the user's question - NOT to answer about other fields.\n\n"
@@ -263,11 +290,7 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
         "Find the answer to this specific question only. Do not return information about other fields."
     )
 
-    print(f"\n[DEBUG] Sending to Groq:")
-    print(f"  Question: {question}")
-    print(f"  Prompt length: {len(prompt)} chars")
-    print(f"  Context blocks: {len(context_blocks)}")
-    print(f"  First 1000 chars of prompt:\n{prompt[:1000]}")
+    logger.debug(f"Sending to Gemini: question='{question}', prompt_length={len(prompt)}, context_blocks={len(context_blocks)}")
 
     system_prompt = (
         "You are an expert at extracting specific information from documents. "
@@ -279,27 +302,25 @@ def generate_answer(question: str, memories: list[dict], max_snippet_chars: int 
 
     try:
         answer = _post_chat_completion(prompt=prompt, system_prompt=system_prompt, temperature=0.1)
-        print(f"\n[DEBUG] Groq Response: {answer}")
-        print(f"[DEBUG] Question: {question}\n")
-        
-        # Post-process to enforce 1-2 sentences max
+        logger.debug(f"Gemini response received for question: '{question}'")
+
         sentences = answer.split('\n')
         source_line = ""
         answer_parts = []
-        
+
         for line in sentences:
             if line.strip().lower().startswith("source:"):
                 source_line = line.strip()
             else:
                 answer_parts.append(line.strip())
-        
+
         answer_text = " ".join(answer_parts).strip()
         sentence_list = re.split(r'(?<=[.!?])\s+', answer_text)
         limited_answer = " ".join(sentence_list[:2])
-        
+
         if source_line:
             return f"{limited_answer}\n\nSource: {source_line.replace('Source: ', '')}"
         return limited_answer
     except Exception as e:
+        logger.exception("[GEMINI] Answer generation failed")
         raise RuntimeError(f"LLM answer generation failed: {e}") from e
-

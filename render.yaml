@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: memoryvault-backend
+    env: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    plan: starter  # Change to 'free' or other plans as needed
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false  # Set this in Render dashboard
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-3-flash-preview
+      - key: EMBEDDING_MODEL
+        value: gemini-embedding-001
+      - key: MONGO_URI
+        sync: false  # Set this in Render dashboard (MongoDB Atlas connection string)
+      - key: JWT_SECRET_KEY
+        generateValue: true  # Render will auto-generate a secure secret
+      - key: JWT_ALGORITHM
+        value: HS256
+      - key: JWT_EXPIRE_MINUTES
+        value: 60
+      - key: TESSERACT_CMD
+        value: tesseract  # System-installed tesseract on Linux
+    healthCheckPath: /health

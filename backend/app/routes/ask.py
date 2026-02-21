@@ -1,3 +1,4 @@
+import logging
 import re
 
 from bson import ObjectId
@@ -9,11 +10,12 @@ from ..db.mongo import get_memories_collection
 from ..dependencies.auth import get_current_user
 from ..services.embedding_service import align_embedding_to_collection, embed_text
 from ..services.filter_service import filter_user_memories
-from ..services.groq_service import generate_answer
+from ..services.gemini_service import generate_answer
 from ..services.query_parser_service import parse_user_query
 
 
 router = APIRouter(tags=["ask"])
+logger = logging.getLogger(__name__)
 
 MAX_CANDIDATES = 100
 VECTOR_CANDIDATE_MULTIPLIER = 8
@@ -94,6 +96,18 @@ def _rank_memories(question: str, memories: list[dict], top_k: int) -> list[dict
     return ranked[:top_k]
 
 
+def _fallback_memories_from_mongo(user_id: ObjectId, limit: int = MAX_CANDIDATES) -> list[dict]:
+    collection = get_memories_collection()
+    return list(collection.find({"userId": user_id}).sort("createdAt", -1).limit(limit))
+
+
+def _resolve_ranked_fallback(question: str, candidate_docs: list[dict], top_k: int) -> list[dict]:
+    ranked = _rank_memories(question, candidate_docs, top_k)
+    if ranked:
+        return ranked
+    return candidate_docs[:top_k]
+
+
 def _serialize_match(memory: dict) -> AskMatch:
     created_at = memory.get("createdAt")
     created_at_str = None
@@ -131,12 +145,21 @@ def ask_memory(
         )
 
     user_id = current_user["_id"]
+    logger.info("[ASK] Started question processing | user_id=%s | top_k=%s", str(user_id), payload.top_k)
+    logger.debug("[ASK] Question=%s", question)
 
     try:
         parsed_query = parse_user_query(question)
     except Exception as e:
-        print(f"Query parsing failed: {e}")
+        logger.exception("[ASK] Query parsing failed, proceeding with fallback parser path")
         parsed_query = None
+    else:
+        logger.info(
+            "[ASK] Parsed query | date_filter=%s | memory_type=%s | keywords=%s",
+            getattr(parsed_query, "date_filter", None),
+            getattr(parsed_query, "memory_type", None),
+            getattr(parsed_query, "keywords", []),
+        )
 
     pre_filtered_memories: list[dict] = []
     if parsed_query:
@@ -146,15 +169,22 @@ def ask_memory(
                 parsed_query=parsed_query,
                 limit=MAX_CANDIDATES,
             )
+            logger.info("[ASK] Pre-filtered memories count=%s", len(pre_filtered_memories))
         except Exception as e:
+            logger.exception("[ASK] Mongo pre-filtering failed")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"MongoDB filtering failed: {e}",
             ) from e
 
     try:
-        question_embedding = embed_text(question)
         chroma_collection = get_chroma_collection()
+        logger.info("[ASK] Chroma collection ready | count=%s", chroma_collection.count())
+        question_embedding = embed_text(
+            question,
+            task_type="RETRIEVAL_QUERY",
+            collection=chroma_collection,
+        )
         question_embedding = align_embedding_to_collection(
             question_embedding,
             collection=chroma_collection,
@@ -172,24 +202,52 @@ def ask_memory(
                 query_embeddings=[question_embedding],
                 n_results=max(payload.top_k * VECTOR_CANDIDATE_MULTIPLIER, payload.top_k),
             )
+        logger.info("[ASK] Vector search completed")
     except Exception as e:
+        logger.exception("[ASK] Vector search failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Vector search failed: {e}",
         ) from e
 
     matched_ids = query_result.get("ids", [[]])[0]
+    logger.info("[ASK] Vector matched IDs count=%s", len(matched_ids))
     if not matched_ids:
-        return AskResponse(
-            answer="No relevant memories found. Try asking about specific topics, dates, or types of files.",
-            matched_memories=[],
-        )
+        logger.warning("[ASK] No vector matches found; switching to Mongo fallback")
+        fallback_docs = pre_filtered_memories or _fallback_memories_from_mongo(user_id=user_id)
+        logger.info("[ASK] Fallback candidate docs count=%s", len(fallback_docs))
+        if not fallback_docs:
+            return AskResponse(
+                answer="No relevant memories found. Try asking about specific topics, dates, or types of files.",
+                matched_memories=[],
+            )
+
+        ranked_documents = _resolve_ranked_fallback(question, fallback_docs, payload.top_k)
+        if not ranked_documents:
+            return AskResponse(
+                answer="No relevant memories found. Try asking about specific topics, dates, or types of files.",
+                matched_memories=[],
+            )
+
+        try:
+            answer = generate_answer(question, ranked_documents)
+        except Exception as e:
+            logger.exception("[ASK] Gemini answer generation failed on fallback documents")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=str(e),
+            ) from e
+
+        matches = [_serialize_match(document) for document in ranked_documents]
+        return AskResponse(answer=answer, matched_memories=matches)
 
     try:
         object_ids = [ObjectId(memory_id) for memory_id in matched_ids if ObjectId.is_valid(memory_id)]
         collection = get_memories_collection()
         documents = list(collection.find({"_id": {"$in": object_ids}, "userId": user_id}))
+        logger.info("[ASK] Mongo hydrated documents count=%s", len(documents))
     except Exception as e:
+        logger.exception("[ASK] Mongo retrieval by matched vector IDs failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"MongoDB retrieval failed: {e}",
@@ -197,9 +255,10 @@ def ask_memory(
 
     document_map = {str(document["_id"]): document for document in documents}
     ordered_documents = [document_map[memory_id] for memory_id in matched_ids if memory_id in document_map]
-    ranked_documents = _rank_memories(question, ordered_documents, payload.top_k)
+    ranked_documents = _resolve_ranked_fallback(question, ordered_documents, payload.top_k)
 
     if not ranked_documents:
+        logger.warning("[ASK] Ranked documents empty after vector+mongo hydration")
         return AskResponse(
             answer="No relevant memories found. Try asking about specific topics, dates, or types of files.",
             matched_memories=[],
@@ -208,6 +267,7 @@ def ask_memory(
     try:
         answer = generate_answer(question, ranked_documents)
     except Exception as e:
+        logger.exception("[ASK] Gemini answer generation failed")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=str(e),

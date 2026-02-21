@@ -1,7 +1,10 @@
+import logging
 from pathlib import Path
 from typing import Optional
 
 import chromadb
+
+logger = logging.getLogger(__name__)
 
 
 COLLECTION_NAME = "memories_vectors"
@@ -32,14 +35,14 @@ def reset_chroma_collection():
     
     try:
         _client.delete_collection(name=COLLECTION_NAME)
-        print(f"[DEBUG] ✓ Deleted old ChromaDB collection: {COLLECTION_NAME}")
+        logger.debug(f"Deleted old ChromaDB collection: {COLLECTION_NAME}")
     except Exception as e:
-        print(f"[DEBUG] Could not delete collection: {e}")
+        logger.debug(f"Could not delete collection: {e}")
     
     _collection = None
     
     # Recreate with new dimensions
     _collection = _client.get_or_create_collection(name=COLLECTION_NAME)
-    print(f"[DEBUG] ✓ Created fresh ChromaDB collection: {COLLECTION_NAME}")
+    logger.info(f"Created fresh ChromaDB collection: {COLLECTION_NAME}")
     
     return _collection

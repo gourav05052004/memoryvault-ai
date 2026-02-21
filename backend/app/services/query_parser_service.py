@@ -1,14 +1,18 @@
 import json
+import logging
 import re
 from datetime import datetime, timedelta
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
-from ..config import GROQ_API_KEY, GROQ_CHAT_MODEL
+from google import genai
+from google.genai import types
+
+from ..config import GEMINI_API_KEY, GEMINI_CHAT_MODEL
 
 
-CHAT_COMPLETIONS_URL = "https://api.groq.com/openai/v1/chat/completions"
 REQUEST_TIMEOUT_SECONDS = 30
+_GEMINI_CLIENT = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+_FALLBACK_CHAT_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash"]
+logger = logging.getLogger(__name__)
 
 
 class ParsedQuery:
@@ -29,54 +33,71 @@ class ParsedQuery:
         self.memory_type = memory_type  # e.g., "pdf", "image", "note"
 
 
-def _post_groq_parsing(prompt: str, system_prompt: str) -> str:
-    """Call Groq API for query parsing."""
-    if not GROQ_API_KEY:
-        raise RuntimeError("GROQ_API_KEY is not configured")
+def _chat_model_candidates() -> list[str]:
+    ordered = [GEMINI_CHAT_MODEL, *_FALLBACK_CHAT_MODELS]
+    unique: list[str] = []
+    for model in ordered:
+        if model and model not in unique:
+            unique.append(model)
+    return unique
 
-    payload = {
-        "model": GROQ_CHAT_MODEL,
-        "temperature": 0.1,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": prompt},
-        ],
-    }
 
-    req = Request(
-        CHAT_COMPLETIONS_URL,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {GROQ_API_KEY}",
-        },
-        method="POST",
-    )
+def _post_gemini_parsing(prompt: str, system_prompt: str) -> str:
+    """Call Gemini API for query parsing."""
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is not configured")
+    if _GEMINI_CLIENT is None:
+        raise RuntimeError("Gemini client is not initialized")
 
-    try:
-        with urlopen(req, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            raw = response.read().decode("utf-8")
-    except HTTPError as exc:
-        details = exc.read().decode("utf-8", errors="ignore")
-        raise RuntimeError(f"Groq API HTTP {exc.code}: {details}") from exc
-    except URLError as exc:
-        raise RuntimeError(f"Could not reach Groq API: {exc.reason}") from exc
+    combined_prompt = f"System instructions:\n{system_prompt}\n\nUser prompt:\n{prompt}"
 
-    parsed = json.loads(raw)
-    choices = parsed.get("choices") or []
-    if not choices:
-        raise RuntimeError("Groq API returned no choices")
+    last_error: Exception | None = None
 
-    message = choices[0].get("message") if isinstance(choices[0], dict) else None
-    content = message.get("content") if isinstance(message, dict) else ""
-    if not isinstance(content, str) or not content.strip():
-        raise RuntimeError("Groq API returned empty content")
+    for model_name in _chat_model_candidates():
+        try:
+            logger.debug("[QUERY_PARSER] Trying model=%s with thinking_config", model_name)
+            response = _GEMINI_CLIENT.models.generate_content(
+                model=model_name,
+                contents=combined_prompt,
+                config=types.GenerateContentConfig(
+                    temperature=0.1,
+                    thinking_config=types.ThinkingConfig(thinking_level="low"),
+                ),
+            )
+        except Exception as thinking_exc:
+            logger.warning(
+                "[QUERY_PARSER] thinking_config call failed for model=%s: %s",
+                model_name,
+                thinking_exc,
+            )
+            try:
+                logger.debug("[QUERY_PARSER] Retrying model=%s without thinking_config", model_name)
+                response = _GEMINI_CLIENT.models.generate_content(
+                    model=model_name,
+                    contents=combined_prompt,
+                    config=types.GenerateContentConfig(temperature=0.1),
+                )
+            except Exception as plain_exc:
+                logger.warning(
+                    "[QUERY_PARSER] plain call failed for model=%s: %s",
+                    model_name,
+                    plain_exc,
+                )
+                last_error = plain_exc
+                continue
 
-    return content.strip()
+        content = getattr(response, "text", "")
+        if isinstance(content, str) and content.strip():
+            logger.info("[QUERY_PARSER] Parsed query successfully using model=%s", model_name)
+            return content.strip()
+
+        last_error = RuntimeError(f"Gemini API returned empty content for model {model_name}")
+
+    raise RuntimeError(f"Gemini API call failed across model fallbacks: {last_error}")
 
 
 def _extract_json_from_response(raw_text: str) -> dict:
-    """Extract JSON from Groq response."""
+    """Extract JSON from model response."""
     candidate = raw_text.strip()
 
     if candidate.startswith("```"):
@@ -151,13 +172,13 @@ def parse_user_query(question: str) -> ParsedQuery:
     """
     Parse user question to extract structured metadata.
     
-    Uses Groq LLM for lightweight query interpretation.
+    Uses Gemini for lightweight query interpretation.
     Returns ParsedQuery with date filters, keywords, and type information.
     """
     if not question or not question.strip():
         return ParsedQuery(original_question=question)
 
-    prompt = """Analyze this user question about their memories and extract structured metadata.
+    prompt = f"""Analyze this user question about their memories and extract structured metadata.
 Return ONLY valid JSON with these EXACT keys:
 - date_filter: null or a string describing the time period (e.g., "last week", "january", "last month", "today")
 - keywords: array of 1-3 important keywords/search terms from the question
@@ -168,13 +189,13 @@ If not explicitly mentioned, set to null.
 
 Examples:
 Q: "What was discussed in my ML class last week?"
-{"date_filter": "last_week", "keywords": ["ML class", "discussion"], "memory_type": null}
+{{"date_filter": "last_week", "keywords": ["ML class", "discussion"], "memory_type": null}}
 
 Q: "Show the resume I uploaded in January"
-{"date_filter": "january", "keywords": ["resume"], "memory_type": "pdf"}
+{{"date_filter": "january", "keywords": ["resume"], "memory_type": "pdf"}}
 
 Q: "What were my project ideas related to healthcare?"
-{"date_filter": null, "keywords": ["project ideas", "healthcare"], "memory_type": null}
+{{"date_filter": null, "keywords": ["project ideas", "healthcare"], "memory_type": null}}
 
 User question: {question}
 
@@ -187,7 +208,7 @@ Return ONLY the JSON object, no other text."""
     )
 
     try:
-        response = _post_groq_parsing(prompt=prompt, system_prompt=system_prompt)
+        response = _post_gemini_parsing(prompt=prompt, system_prompt=system_prompt)
         parsed_data = _extract_json_from_response(response)
 
         date_filter = parsed_data.get("date_filter")
@@ -214,6 +235,5 @@ Return ONLY the JSON object, no other text."""
         )
 
     except Exception as e:
-        # Fallback: return basic parsing - silently handle Groq errors
-        print(f"[DEBUG] Query parser using fallback (LLM unavailable: {type(e).__name__})")
+        logger.exception("[QUERY_PARSER] Falling back to basic parsing due to model error")
         return ParsedQuery(original_question=question)

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+import logging
 import os
 
 from fastapi import FastAPI
@@ -8,6 +9,13 @@ from .routes.auth import router as auth_router
 from .routes.ask import router as ask_router
 from .routes.memory import router as memory_router
 from .routes.upload import router as upload_router
+
+
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+	level=getattr(logging, LOG_LEVEL, logging.INFO),
+	format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
 
 
 app = FastAPI(
@@ -38,6 +46,16 @@ app.include_router(auth_router)
 @app.get("/")
 def root() -> dict[str, str]:
 	return {"message": "MemoryVault AI backend running"}
+
+
+@app.get("/health")
+def health_check() -> dict[str, str]:
+	"""Health check endpoint for monitoring and deployment platforms"""
+	return {
+		"status": "healthy",
+		"timestamp": datetime.now(timezone.utc).isoformat(),
+		"service": "memoryvault-backend"
+	}
 
 
 @app.get("/health")

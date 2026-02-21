@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from bson import ObjectId
@@ -9,7 +10,9 @@ from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
 from ..db.chroma import get_chroma_collection
 from ..services.embedding_service import index_memory_vector
-from ..services.groq_service import generate_summary_and_tags
+from ..services.gemini_service import generate_summary_and_tags
+
+logger = logging.getLogger(__name__)
 
 
 router = APIRouter(tags=["memories"])
@@ -141,9 +144,7 @@ def list_memories(current_user: dict = Depends(get_current_user)) -> list[Memory
     ).sort("createdAt", -1)
     memories = [_serialize_memory(document) for document in cursor]
 
-    print(f"[Memories List] Returning {len(memories)} memories")
-    for mem in memories:
-        print(f"  - {mem.get('title')}: summary length = {len(mem.get('summary', ''))}")
+    logger.debug(f"Returning {len(memories)} memories for user {current_user.get('email')}")
 
     return [MemoryListItem.model_validate(memory) for memory in memories]
 
@@ -164,10 +165,7 @@ def get_memory_by_id(
         )
 
     serialized = _serialize_memory(document)
-    print(f"[Memory Detail] Retrieved: {serialized.get('title')}")
-    print(f"  - Type: {serialized.get('type')}")
-    print(f"  - Summary length: {len(serialized.get('summary', ''))}")
-    print(f"  - Tags: {serialized.get('tags')}")
+    logger.debug(f"Retrieved memory: id={id}, title={serialized.get('title')}, type={serialized.get('type')}")
 
     return MemoryDetailResponse.model_validate(serialized)
 

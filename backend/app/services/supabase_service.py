@@ -1,9 +1,12 @@
+import logging
 import os
 from pathlib import Path
 from io import BytesIO
 
 from fastapi import HTTPException, UploadFile, status
 from dotenv import load_dotenv
+
+logger = logging.getLogger(__name__)
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv(BASE_DIR / ".env")
@@ -89,7 +92,7 @@ def upload_file_to_supabase(file: UploadFile, bucket: str = "memoryvault") -> di
     except HTTPException:
         raise
     except Exception as exc:
-        print(f"Supabase upload error: {type(exc).__name__}: {str(exc)}")
+        logger.error(f"Supabase upload error: {type(exc).__name__}: {str(exc)}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Failed to upload file to Supabase: {str(exc)}",
@@ -103,5 +106,5 @@ def delete_file_from_supabase(file_path: str, bucket: str = "memoryvault") -> bo
         client.storage.from_(bucket).remove([file_path])
         return True
     except Exception as exc:
-        print(f"Supabase delete error: {type(exc).__name__}: {str(exc)}")
+        logger.error(f"Supabase delete error: {type(exc).__name__}: {str(exc)}")
         return False
