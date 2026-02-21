@@ -7,6 +7,10 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg
 
 # Virtual environments
 venv/
@@ -14,32 +18,56 @@ env/
 ENV/
 .venv
 
-# IDE
+# IDE & Editors
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
+.DS_Store
+Thumbs.db
+*.sublime-*
 
 # Environment
 .env
 .env.local
+.env.*.local
 
-# Database
+# Database & Storage
 chroma_store/
+*.sqlite
 *.sqlite3
-
-# Uploads (if storing locally)
+*.db
 uploads/
 
-# Tests
+# Logs
+*.log
+log/
+logs/
+
+# Development/Testing
 test_*.py
 check_*.py
 reset_chroma.py
 reindex_chroma_from_mongo.py
+.coverage
+htmlcov/
 
-# Git
+# Version Control
 .git/
 .gitignore
+.github/
 
 # Documentation
 README.md
+*.md
+DOCS/
+
+# Cache
+.cache/
+*.pycache
+
+# Temporary
+*.tmp
+*.temp
+.python-version
