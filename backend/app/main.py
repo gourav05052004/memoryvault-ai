@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 import logging
 import os
 import subprocess
+import shutil
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -48,38 +49,27 @@ app.include_router(auth_router)
 
 @app.on_event("startup")
 def startup_event():
-	"""Verify critical dependencies on startup"""
-	import subprocess
-	import shutil
+	"""Configure and verify Tesseract on startup"""
+	import pytesseract
 	
-	# Check Tesseract in multiple locations
-	tesseract_locations = [
-		"/usr/bin/tesseract",
-		"/usr/local/bin/tesseract",
-		"/bin/tesseract",
-		"tesseract",
-	]
+	# Set Tesseract path - will try to find it in PATH
+	# Render container has it at /usr/bin/tesseract from Dockerfile
+	pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
 	
-	found_path = None
-	for path in tesseract_locations:
-		try:
-			result = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=5)
-			if result.returncode == 0:
-				found_path = path
-				logger.info(f"✓ Tesseract OCR found at: {path}")
-				logger.info(f"  Version: {result.stdout.split(chr(10))[0]}")
-				break
-		except (FileNotFoundError, subprocess.TimeoutExpired):
-			continue
-	
-	if found_path:
-		# Set the path for pytesseract
-		import pytesseract
-		pytesseract.pytesseract.tesseract_cmd = found_path
-		logger.info(f"✓ Pytesseract configured to use: {found_path}")
-	else:
-		logger.error("✗ Tesseract OCR not found in any standard location")
-		logger.error("  Checked: " + ", ".join(tesseract_locations))
+	# Verify it works
+	try:
+		result = subprocess.run(["/usr/bin/tesseract", "--version"], capture_output=True, text=True, timeout=5)
+		if result.returncode == 0:
+			version_info = result.stdout.split('\n')[0] if result.stdout else "installed"
+			logger.info(f"✓ Tesseract OCR ready: {version_info}")
+		else:
+			logger.error(f"✗ Tesseract test failed with code {result.returncode}")
+			logger.error(f"  stderr: {result.stderr}")
+	except FileNotFoundError:
+		logger.error("✗ Tesseract binary not found at /usr/bin/tesseract")
+		logger.error("  Image uploads will fail. Check Dockerfile installation.")
+	except Exception as e:
+		logger.error(f"✗ Tesseract verification failed: {e}")
 
 
 @app.get("/")
