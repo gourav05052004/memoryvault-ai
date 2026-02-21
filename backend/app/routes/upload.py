@@ -1,6 +1,5 @@
 import logging
 import os
-import shutil
 import traceback
 from datetime import datetime, timezone
 from io import BytesIO
@@ -13,7 +12,6 @@ from PIL import Image, UnidentifiedImageError
 from pydantic import BaseModel
 from pytesseract import TesseractNotFoundError
 
-from ..config import TESSERACT_CMD
 from ..dependencies.auth import get_current_user
 from ..db.mongo import get_memories_collection
 from ..services.supabase_service import upload_file_to_supabase
@@ -25,37 +23,8 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["uploads"])
 
-
-# Configure Tesseract path with multiple fallbacks
-def _configure_tesseract():
-	"""Configure pytesseract with proper path resolution"""
-	tesseract_path = os.getenv("TESSERACT_PATH", "")
-	
-	# Priority: env var > TESSERACT_CMD config > default
-	if TESSERACT_CMD:
-		pytesseract.pytesseract.tesseract_cmd = TESSERACT_CMD
-		logger.debug(f"Using TESSERACT_CMD: {TESSERACT_CMD}")
-	elif tesseract_path:
-		pytesseract.pytesseract.tesseract_cmd = tesseract_path
-		logger.debug(f"Using TESSERACT_PATH: {tesseract_path}")
-	else:
-		pytesseract.pytesseract.tesseract_cmd = "/usr/bin/tesseract"
-		logger.debug("Using default: /usr/bin/tesseract")
-	
-	# Verify path exists
-	try:
-		import shutil
-		actual_path = shutil.which(pytesseract.pytesseract.tesseract_cmd)
-		if actual_path:
-			logger.info(f"✓ Tesseract found at: {actual_path}")
-		else:
-			logger.error(f"✗ Tesseract not found at: {pytesseract.pytesseract.tesseract_cmd}")
-	except Exception as e:
-		logger.warning(f"Could not verify Tesseract path: {e}")
-
-
-_configure_tesseract()
-
+# Import pytesseract - path will be configured in main.py startup event
+import pytesseract
 
 ALLOWED_PDF_MIME_TYPES = {"application/pdf"}
 ALLOWED_PDF_EXTENSIONS = {".pdf"}
