@@ -48,19 +48,10 @@ def root() -> dict[str, str]:
 	return {"message": "MemoryVault AI backend running"}
 
 
-@app.get("/health")
-def health_check() -> dict[str, str]:
-	"""Health check endpoint for monitoring and deployment platforms"""
+@app.api_route("/health", methods=["GET", "HEAD"])
+def health() -> dict[str, str]:
 	return {
 		"status": "healthy",
 		"timestamp": datetime.now(timezone.utc).isoformat(),
-		"service": "memoryvault-backend"
-	}
-
-
-@app.get("/health")
-def health() -> dict[str, str]:
-	return {
-		"status": "ok",
-		"timestamp": datetime.now(timezone.utc).isoformat(),
+		"service": "memoryvault-backend",
 	}

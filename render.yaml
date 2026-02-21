@@ -1,25 +1,38 @@
 services:
   - type: web
     name: memoryvault-backend
-    env: docker
+    runtime: docker
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     plan: starter  # Change to 'free' or other plans as needed
     envVars:
+      # === REQUIRED: Set these in Render dashboard ===
       - key: GEMINI_API_KEY
-        sync: false  # Set this in Render dashboard
+        sync: false  # Get from https://aistudio.google.com/apikey
+      - key: MONGO_URI
+        sync: false  # MongoDB Atlas connection string
+      - key: SUPABASE_URL
+        sync: false  # Your Supabase project URL
+      - key: SUPABASE_KEY
+        sync: false  # Your Supabase anon/service key
+      - key: FRONTEND_URLS
+        sync: false  # Your frontend URL(s), comma-separated (e.g., https://yourapp.vercel.app)
+      
+      # === AUTO-GENERATED ===
+      - key: JWT_SECRET_KEY
+        generateValue: true  # Render auto-generates a secure secret
+      
+      # === OPTIONAL: Defaults are fine, customize if needed ===
       - key: GEMINI_CHAT_MODEL
         value: gemini-3-flash-preview
       - key: EMBEDDING_MODEL
         value: gemini-embedding-001
-      - key: MONGO_URI
-        sync: false  # Set this in Render dashboard (MongoDB Atlas connection string)
-      - key: JWT_SECRET_KEY
-        generateValue: true  # Render will auto-generate a secure secret
       - key: JWT_ALGORITHM
         value: HS256
       - key: JWT_EXPIRE_MINUTES
         value: 60
+      - key: LOG_LEVEL
+        value: INFO
       - key: TESSERACT_CMD
-        value: tesseract  # System-installed tesseract on Linux
+        value: tesseract  # System-installed tesseract from Dockerfile
     healthCheckPath: /health
