@@ -43,6 +43,10 @@ def _get_supabase_client():
     return _supabase_client
 
 
+# Expose the initialized Supabase client for shared app-wide use.
+supabase = _get_supabase_client()
+
+
 def upload_file_to_supabase(file: UploadFile, bucket: str = "memoryvault") -> dict:
     """
     Upload a file to Supabase Storage.

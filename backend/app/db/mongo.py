@@ -24,6 +24,17 @@ def _get_database() -> Database:
     return _get_client()[DATABASE_NAME]
 
 
+# Expose the initialized client and default database for shared app-wide use.
+mongo = _get_client()
+db = _get_database()
+
+try:
+    setattr(mongo, "db", db)
+except Exception:
+    # Fallback for environments where the client object disallows custom attributes.
+    pass
+
+
 def get_memories_collection() -> Collection:
     return _get_database()[COLLECTION_NAME]
 
