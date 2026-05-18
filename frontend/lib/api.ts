@@ -1,5 +1,4 @@
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.trim() || 'http://localhost:8001'
+const API_BASE_URL = '/api'
 
 const TOKEN_STORAGE_KEY = 'memoryvault_token'
 
@@ -95,6 +94,25 @@ function transformBackendMemory(backend: BackendMemory): Memory {
   }
 }
 
+async function readResponseBody(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') || ''
+  const rawBody = await response.text()
+
+  if (!rawBody) {
+    return null
+  }
+
+  if (contentType.includes('application/json')) {
+    return JSON.parse(rawBody)
+  }
+
+  try {
+    return JSON.parse(rawBody)
+  } catch {
+    return rawBody
+  }
+}
+
 async function fetchWithErrorHandling<T>(
   url: string,
   options: RequestInit = {}
@@ -114,13 +132,19 @@ async function fetchWithErrorHandling<T>(
     })
 
     console.log('Response status:', response.status)
-    const data = await response.json()
+    const data = await readResponseBody(response)
     console.log('Response data:', data)
 
     if (!response.ok) {
       console.error('Response error:', data)
+      const errorDetail =
+        data && typeof data === 'object' && 'detail' in data
+          ? String((data as { detail?: unknown }).detail ?? '')
+          : typeof data === 'string'
+            ? data
+            : ''
       throw new Error(
-        data.detail || `HTTP ${response.status}: ${response.statusText}`
+        errorDetail || `HTTP ${response.status}: ${response.statusText}`
       )
     }
 

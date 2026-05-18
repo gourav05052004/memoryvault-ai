@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import MessageBubble from './message-bubble'
 import MatchedMemories from './matched-memories'
+import MemoryDetailModal from '@/components/memory-detail-modal'
 import { askMemory } from '@/lib/api'
 import type { Memory } from '@/lib/api'
 
@@ -29,6 +30,7 @@ export default function ChatInterface() {
   ])
   const [inputValue, setInputValue] = useState('')
   const [isLoading, setIsLoading] = useState(false)
+  const [selectedMemory, setSelectedMemory] = useState<Memory | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -88,7 +90,10 @@ export default function ChatInterface() {
             {msg.matchedMemories && msg.matchedMemories.length > 0 && (
               <div className={`flex ${msg.isUser ? 'justify-end' : 'justify-start'}`}>
                 <div className="max-w-xs lg:max-w-md w-full">
-                  <MatchedMemories memories={msg.matchedMemories} />
+                  <MatchedMemories
+                    memories={msg.matchedMemories}
+                    onMemoryClick={setSelectedMemory}
+                  />
                 </div>
               </div>
             )}
@@ -137,6 +142,14 @@ export default function ChatInterface() {
           </Button>
         </div>
       </div>
+
+      {selectedMemory && (
+        <MemoryDetailModal
+          memory={selectedMemory}
+          isOpen={true}
+          onClose={() => setSelectedMemory(null)}
+        />
+      )}
     </div>
   )
 }

@@ -6,9 +6,10 @@ import type { Memory } from '@/lib/api'
 
 interface MatchedMemoriesProps {
   memories: Memory[]
+  onMemoryClick?: (memory: Memory) => void
 }
 
-export default function MatchedMemories({ memories }: MatchedMemoriesProps) {
+export default function MatchedMemories({ memories, onMemoryClick }: MatchedMemoriesProps) {
   if (memories.length === 0) return null
 
   const getTypeIcon = (type: string) => {
@@ -36,6 +37,11 @@ export default function MatchedMemories({ memories }: MatchedMemoriesProps) {
   }
 
   const handleOpenDocument = (memory: Memory) => {
+    if (onMemoryClick) {
+      onMemoryClick(memory)
+      return
+    }
+
     if (memory.fileUrl) {
       window.open(memory.fileUrl, '_blank')
     }

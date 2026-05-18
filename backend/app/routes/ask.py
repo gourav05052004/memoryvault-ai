@@ -39,6 +39,7 @@ class AskMatch(BaseModel):
     id: str = Field(alias="_id")
     title: str
     type: str
+    extractedText: str | None = None
     fileUrl: str | None = None
     fileName: str | None = None
     fileSize: int | None = None
@@ -120,6 +121,7 @@ def _serialize_match(memory: dict) -> AskMatch:
     return AskMatch(
         _id=str(memory["_id"]),
         title=str(memory.get("title", "")),
+        extractedText=memory.get("extractedText"),
         type=str(memory.get("type", "")),
         fileUrl=memory.get("fileUrl"),
         fileName=memory.get("fileName"),

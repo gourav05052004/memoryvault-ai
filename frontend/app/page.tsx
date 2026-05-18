@@ -39,7 +39,7 @@ const features = [
 export default function Home() {
   const autoScrollPlugin = useRef(
     AutoScroll({
-      speed: 0.6,
+      speed: 1.8,
       stopOnInteraction: false,
       stopOnMouseEnter: true,
       stopOnFocusIn: true,
@@ -105,17 +105,7 @@ export default function Home() {
         </Carousel>
       </section>
 
-      <section className="border-t border-border bg-card/40">
-        <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 px-4 py-12 text-center sm:px-6 md:flex-row md:text-left lg:px-8">
-          <div>
-            <h3 className="text-2xl font-semibold text-foreground">Ready to organize your knowledge?</h3>
-            <p className="mt-1 text-muted-foreground">Create an account and start building your searchable memory vault today.</p>
-          </div>
-          <Button size="lg" asChild>
-            <Link href="/signup">Create Free Account</Link>
-          </Button>
-        </div>
-      </section>
+      
     </div>
   )
 }

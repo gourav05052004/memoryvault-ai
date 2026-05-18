@@ -130,6 +130,19 @@ function LoginPageContent() {
               {submitting ? 'Signing in...' : 'Login'}
               {!submitting && <ArrowRight className="h-4 w-4" />}
             </Button>
+
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full mt-2"
+              onClick={() => {
+                setEmail('demo@gmail.com')
+                setPassword('demo@1234')
+                toast.success('Demo credentials filled')
+              }}
+            >
+              Use demo account
+            </Button>
           </form>
 
           <p className="mt-6 text-sm text-muted-foreground">

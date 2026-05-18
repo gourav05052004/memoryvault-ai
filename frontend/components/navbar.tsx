@@ -45,7 +45,7 @@ export default function Navbar() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           {/* Logo */}
-          <Link href="/upload" className="flex items-center gap-2 font-semibold text-xl text-primary hover:opacity-80 transition-opacity">
+          <Link href="/" className="flex items-center gap-2 font-semibold text-xl text-primary hover:opacity-80 transition-opacity">
             <Brain className="h-6 w-6" />
             <span>MemoryVault AI</span>
           </Link>
