@@ -1,7 +1,16 @@
-from pymongo import MongoClient
 import json
 
-client = MongoClient('mongodb+srv://11f15gouravkumarsonu_db_user:4sRt7rmxadzvFnnA@cluster0.jempbxy.mongodb.net/?appName=Cluster0')
+from pymongo import MongoClient
+
+from app.config import MONGO_URI
+
+
+
+if not MONGO_URI or MONGO_URI == "mongodb://localhost:27017":
+    raise RuntimeError("MONGO_URI is not configured")
+
+
+client = MongoClient(MONGO_URI)
 db = client['memoryvault_db']
 
 memories = list(db['memories'].find({'type': 'pdf'}).sort('createdAt', -1).limit(2))

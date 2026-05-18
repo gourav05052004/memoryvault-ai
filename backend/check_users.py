@@ -1,6 +1,13 @@
 from pymongo import MongoClient
 
-client = MongoClient('mongodb+srv://11f15gouravkumarsonu_db_user:4sRt7rmxadzvFnnA@cluster0.jempbxy.mongodb.net/?appName=Cluster0')
+from app.config import MONGO_URI
+
+
+if not MONGO_URI or MONGO_URI == "mongodb://localhost:27017":
+    raise RuntimeError("MONGO_URI is not configured")
+
+
+client = MongoClient(MONGO_URI)
 db = client['memoryvault_db']
 
 users = list(db['users'].find({}, {'email': 1, 'name': 1}))
