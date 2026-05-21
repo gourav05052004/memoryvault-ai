@@ -61,7 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
 
-  const syncProfile = useCallback(async () => {
+  const clearAuthState = useCallback(() => {
+    localStorage.removeItem(TOKEN_STORAGE_KEY)
+    localStorage.removeItem(NAME_STORAGE_KEY)
+    localStorage.removeItem(EMAIL_STORAGE_KEY)
+    setToken(null)
+    setUserName(null)
+    setUserEmail(null)
+  }, [])
+
+  const syncProfile = useCallback(async (options?: { silent?: boolean }) => {
     try {
       const profile = await getCurrentUserProfile()
       console.log('Profile fetched from API:', profile)
@@ -76,9 +85,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       localStorage.setItem(EMAIL_STORAGE_KEY, resolvedEmail)
       setUserName(resolvedName)
       setUserEmail(resolvedEmail)
+      return true
     } catch (error) {
-      console.error('Failed to sync profile from database:', error)
-      throw error
+      if (!options?.silent) {
+        console.error('Failed to sync profile from database:', error)
+      }
+      return false
     }
   }, [])
 
@@ -91,11 +103,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUserEmail(storedEmail)
 
       if (storedToken) {
-        try {
-          await syncProfile()
-        } catch (error) {
-          console.error('Failed to sync profile on init:', error)
-          setUserName(null)
+        const synced = await syncProfile({ silent: true })
+        if (!synced) {
+          clearAuthState()
         }
       } else {
         setIsLoading(false)
@@ -105,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void initializeAuth()
-  }, [syncProfile])
+  }, [clearAuthState, syncProfile])
 
   const login = useCallback(async (email: string, password: string) => {
     const accessToken = await loginUser(email, password)
@@ -119,8 +129,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserName(null) // Clear name, wait for sync
 
     // Must fetch from database before finishing
-    await syncProfile()
-  }, [syncProfile])
+    const synced = await syncProfile()
+    if (!synced) {
+      clearAuthState()
+      throw new Error('Failed to load user profile after login')
+    }
+  }, [clearAuthState, syncProfile])
 
   const signup = useCallback(async (name: string, email: string, password: string) => {
     const accessToken = await signupUser(name, email, password)
@@ -133,17 +147,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUserName(null) // Clear name, wait for sync
 
     // Must fetch from database before finishing
-    await syncProfile()
-  }, [syncProfile])
+    const synced = await syncProfile()
+    if (!synced) {
+      clearAuthState()
+      throw new Error('Failed to load user profile after signup')
+    }
+  }, [clearAuthState, syncProfile])
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_STORAGE_KEY)
-    localStorage.removeItem(NAME_STORAGE_KEY)
-    localStorage.removeItem(EMAIL_STORAGE_KEY)
-    setToken(null)
-    setUserName(null)
-    setUserEmail(null)
-  }, [])
+    clearAuthState()
+  }, [clearAuthState])
 
   const value = useMemo<AuthContextValue>(
     () => ({

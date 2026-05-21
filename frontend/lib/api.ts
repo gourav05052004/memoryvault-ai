@@ -115,7 +115,8 @@ async function readResponseBody(response: Response): Promise<unknown> {
 
 async function fetchWithErrorHandling<T>(
   url: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  config: { suppressErrorLog?: boolean } = {}
 ): Promise<T> {
   try {
     const token = getAuthToken()
@@ -136,13 +137,22 @@ async function fetchWithErrorHandling<T>(
     console.log('Response data:', data)
 
     if (!response.ok) {
-      console.error('Response error:', data)
       const errorDetail =
         data && typeof data === 'object' && 'detail' in data
           ? String((data as { detail?: unknown }).detail ?? '')
-          : typeof data === 'string'
-            ? data
-            : ''
+          : data && typeof data === 'object' && 'message' in data
+            ? String((data as { message?: unknown }).message ?? '')
+            : typeof data === 'string'
+              ? data
+              : ''
+
+      if (!config.suppressErrorLog) {
+        console.error('Response error:', {
+          status: response.status,
+          statusText: response.statusText,
+          detail: errorDetail || data,
+        })
+      }
       throw new Error(
         errorDetail || `HTTP ${response.status}: ${response.statusText}`
       )
@@ -150,7 +160,9 @@ async function fetchWithErrorHandling<T>(
 
     return data as T
   } catch (error) {
-    console.error('Fetch error:', error)
+    if (!config.suppressErrorLog) {
+      console.error('Fetch error:', error)
+    }
     throw error instanceof Error ? error : new Error('Unknown error occurred')
   }
 }
@@ -310,5 +322,9 @@ export async function changePassword(
 }
 
 export async function getCurrentUserProfile(): Promise<UserProfile> {
-  return fetchWithErrorHandling<UserProfile>(`${API_BASE_URL}/auth/me`)
+  return fetchWithErrorHandling<UserProfile>(
+    `${API_BASE_URL}/auth/me`,
+    {},
+    { suppressErrorLog: true }
+  )
 }

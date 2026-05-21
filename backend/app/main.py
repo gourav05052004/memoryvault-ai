@@ -1,10 +1,14 @@
 import asyncio
 from datetime import datetime, timezone
+from contextlib import asynccontextmanager
 import logging
 import os
+import time
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import status
 from fastapi.responses import JSONResponse
 
 from .db.mongo import mongo
@@ -23,10 +27,20 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+scheduler = AsyncIOScheduler()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+	scheduler.start()
+	yield
+	scheduler.shutdown()
+
 
 app = FastAPI(
 	title="MemoryVault AI Backend",
 	version="0.1.0",
+	lifespan=lifespan,
 )
 
 
@@ -73,6 +87,11 @@ async def _ping_supabase(timeout_seconds: float = 3.0) -> bool:
 		return False
 
 
+@scheduler.scheduled_job("interval", hours=24)
+async def keep_supabase_alive():
+	await _ping_supabase()
+
+
 @app.on_event("startup")
 def startup_event():
 	"""Verify critical dependencies on startup"""
@@ -87,12 +106,16 @@ def root() -> dict[str, str]:
 	return {"message": "MemoryVault AI backend running"}
 
 
-@app.get("/health")
-async def health() -> JSONResponse:
+@app.api_route("/health", methods=["GET", "HEAD"])
+async def health() -> dict[str, str | int]:
+	return {"status": "ok", "ts": int(time.time()), "version": "1.0.0"}
+
+
+@app.get("/health/deep")
+async def deep_health() -> JSONResponse:
 	mongo_ok, supabase_ok = await asyncio.gather(_ping_mongo(), _ping_supabase())
-	payload = {
-		"backend": "ok",
-		"mongodb": "ok" if mongo_ok else "failed",
-		"supabase": "ok" if supabase_ok else "failed",
-	}
-	return JSONResponse(status_code=200 if mongo_ok and supabase_ok else 503, content=payload)
+	all_ok = mongo_ok and supabase_ok
+	return JSONResponse(
+		status_code=status.HTTP_200_OK if all_ok else status.HTTP_503_SERVICE_UNAVAILABLE,
+		content={"mongodb": mongo_ok, "supabase": supabase_ok},
+	)
